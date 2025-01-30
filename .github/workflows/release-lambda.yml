@@ -192,9 +192,9 @@ jobs:
           echo "AWS OpenTelemetry Lambda Layer for Python version ${{ github.event.inputs.version }}" > release_notes.md
           echo "" >> release_notes.md
           echo "" >> release_notes.md
-          echo "## See new Lambda Layer ARNs" >> release_notes.md
+          echo "See new Lambda Layer ARNs:" >> release_notes.md
           echo ""
-          echo "https://docs.aws.amazon.com/AmazonCloudWatch/latest/monitoring/CloudWatch-Application-Signals-Enable-Lambda.html#Application-Signals-Enable-Lambda-Methods"
+          echo "https://docs.aws.amazon.com/AmazonCloudWatch/latest/monitoring/CloudWatch-Application-Signals-Enable-Lambda.html#Application-Signals-Enable-Lambda-Methods" >> release_notes.md
           echo "" >> release_notes.md
           echo "Notes:" >> release_notes.md
       - name: Create GH release
@@ -208,4 +208,5 @@ jobs:
              --draft \
              "lambda-v${{ github.event.inputs.version }}" \
              layer.tf
+          echo Removing release_notes.md ...
           rm -f release_notes.md
