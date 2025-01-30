@@ -187,9 +187,12 @@ jobs:
         with:
           name: layer.tf
           path: layer.tf
+      - name: Get commit hash
+        id: commit
+        run: echo "sha_short=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
       - name: Create Release Notes
         run: |
-          echo "AWS OpenTelemetry Lambda Layer for Python version ${{ github.event.inputs.version }}" > release_notes.md
+          echo "AWS OpenTelemetry Lambda Layer for Python version ${{ github.event.inputs.version }} (${{ steps.commit.outputs.sha_short }})" > release_notes.md
           echo "" >> release_notes.md
           echo "" >> release_notes.md
           echo "See new Lambda Layer ARNs:" >> release_notes.md
@@ -203,10 +206,10 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # This token is provided by Actions, you do not need to create your own token
         run: |
           gh release create --target "$GITHUB_REF_NAME" \
-             --title "Release lambda-v${{ github.event.inputs.version }}" \
+             --title "Release lambda-v${{ github.event.inputs.version }} (${{ steps.commit.outputs.sha_short }})" \
              --notes-file release_notes.md  \
              --draft \
-             "lambda-v${{ github.event.inputs.version }}" \
+             "lambda-v${{ github.event.inputs.version }} (${{ steps.commit.outputs.sha_short }})" \
              layer.tf
           echo Removing release_notes.md ...
           rm -f release_notes.md
