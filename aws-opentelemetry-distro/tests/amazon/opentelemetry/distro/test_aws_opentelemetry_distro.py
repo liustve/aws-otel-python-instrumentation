@@ -52,9 +52,9 @@ class TestAwsOpenTelemetryDistro(TestCase):
 
     def test_package_available(self):
         try:
-            version("aws-opentelemetry-distro")
+            version("aws-opentelemetry-distro-genai-beta")
         except PackageNotFoundError:
-            self.fail("aws-opentelemetry-distro not installed")
+            self.fail("aws-opentelemetry-distro-genai-beta")
 
     @patch("amazon.opentelemetry.distro.aws_opentelemetry_distro.apply_instrumentation_patches")
     @patch("amazon.opentelemetry.distro.aws_opentelemetry_distro.OpenTelemetryDistro._configure")
