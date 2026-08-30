@@ -55,21 +55,31 @@ def call_mock_llm(provider: str, **kwargs: Any) -> None:  # pylint: disable=too-
             "top_k": 250,
             "max_tokens": 100,
         },
+        "litellm": {
+            "model": "gpt-5.6-sol",
+            "temperature": 1.0,
+            "top_k": None,
+            "max_tokens": 100,
+        },
     }.get(provider)
     if config is None:
         raise ValueError(f"Unsupported LLM provider: {provider}")
 
+    invoke_llm_callback = kwargs.get("invoke_llm_callback")
+    is_async = kwargs.get("is_async", False)
     model = kwargs.get("model", config["model"])
     temperature = kwargs.get("temperature", config["temperature"])
     top_k = kwargs.get("top_k", config["top_k"])
     max_tokens = kwargs.get("max_tokens", config["max_tokens"])
 
-    if provider == "openai":
-        import httpx
-        from openai import OpenAI
+    if provider in ("openai", "litellm"):
+        import asyncio
 
-        transport = httpx.MockTransport(
-            lambda request: httpx.Response(
+        import httpx
+        from openai import AsyncOpenAI, OpenAI
+
+        def openai_response(request):
+            return httpx.Response(
                 200,
                 request=request,
                 json={
@@ -87,18 +97,35 @@ def call_mock_llm(provider: str, **kwargs: Any) -> None:  # pylint: disable=too-
                     "usage": {"prompt_tokens": 10, "completion_tokens": 20, "total_tokens": 30},
                 },
             )
-        )
+
+        transport = httpx.MockTransport(openai_response)
+        if is_async:
+            http_client = httpx.AsyncClient(transport=transport)
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                invoke_llm_callback(AsyncOpenAI(api_key="fake-key", http_client=http_client))
+            finally:
+                loop.run_until_complete(http_client.aclose())
+                asyncio.set_event_loop(None)
+                loop.close()
+            return
+
         with httpx.Client(transport=transport) as http_client:
-            OpenAI(api_key="fake-key", http_client=http_client).chat.completions.create(
-                model=model,
-                messages=[{"role": "user", "content": "Hello"}],
-                temperature=temperature,
-            )
+            if provider == "litellm":
+                import litellm
+
+                previous_client_session = litellm.client_session
+                litellm.client_session = http_client
+                try:
+                    invoke_llm_callback(None)
+                finally:
+                    litellm.client_session = previous_client_session
+            else:
+                invoke_llm_callback(OpenAI(api_key="fake-key", http_client=http_client))
         return
 
     if provider == "anthropic":
-        from inspect import signature
-
         from anthropic import Anthropic, DefaultHttpxClient, _base_client
 
         anthropic_httpx = getattr(_base_client, "httpx2", None) or _base_client.httpx
@@ -118,19 +145,8 @@ def call_mock_llm(provider: str, **kwargs: Any) -> None:  # pylint: disable=too-
                 },
             )
         )
-        request = {
-            "model": model,
-            "max_tokens": max_tokens,
-            "messages": [{"role": "user", "content": "Hello"}],
-        }
         with DefaultHttpxClient(transport=transport) as http_client:
-            client = Anthropic(api_key="fake-key", http_client=http_client)
-            supported_parameters = signature(client.messages.create).parameters
-            if "temperature" in supported_parameters:
-                request["temperature"] = temperature
-            if top_k is not None and "top_k" in supported_parameters:
-                request["top_k"] = top_k
-            client.messages.create(**request)
+            invoke_llm_callback(Anthropic(api_key="fake-key", http_client=http_client))
         return
 
     if provider == "bedrock":
@@ -157,5 +173,9 @@ def call_mock_llm(provider: str, **kwargs: Any) -> None:  # pylint: disable=too-
             "metrics": {"latencyMs": 1},
         }
         with Stubber(client) as stubber:
-            stubber.add_response("converse", response, request)
-            client.converse(**request)
+            if invoke_llm_callback:
+                stubber.add_response("converse", response)
+                invoke_llm_callback(client)
+            else:
+                stubber.add_response("converse", response, request)
+                client.converse(**request)

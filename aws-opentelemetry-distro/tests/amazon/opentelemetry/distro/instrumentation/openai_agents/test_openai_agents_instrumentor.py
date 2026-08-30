@@ -7,7 +7,7 @@ from importlib.metadata import entry_points
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
-from agents import tracing
+from agents import Agent, OpenAIChatCompletionsModel, Runner, tracing
 from agents.items import ItemHelpers
 from agents.tracing import processors
 from agents.tracing.processors import BackendSpanExporter
@@ -226,9 +226,29 @@ class TestOpenAIAgentsTracingProcessor(unittest.TestCase):
 
     def test_llm_calls_suppresses_child_http_spans(self):
         openai_model = "gpt-5.6-sol"
-        openai_temperature = 1.0
-        bedrock_model = "anthropic.claude-fable-5"
-        bedrock_temperature = 0.7
+
+        def invoke_agent(client, is_instrumented=False):
+            if is_instrumented:
+                create = client.chat.completions.create
+
+                async def create_with_bedrock(*args, **kwargs):
+                    call_mock_llm("bedrock")
+                    return await create(*args, **kwargs)
+
+                client.chat.completions.create = create_with_bedrock
+
+            Runner.run_sync(
+                Agent(
+                    name="Test agent",
+                    instructions="You are a helpful assistant.",
+                    model=OpenAIChatCompletionsModel(
+                        model=openai_model,
+                        openai_client=client,
+                    ),
+                ),
+                "Hello",
+            )
+
         httpx_instrumentor = HTTPXClientInstrumentor()
         httpx2_instrumentor = HTTPX2ClientInstrumentor()
         botocore_instrumentor = BotocoreInstrumentor()
@@ -240,22 +260,15 @@ class TestOpenAIAgentsTracingProcessor(unittest.TestCase):
         botocore_instrumentor.instrument(tracer_provider=self.tracer_provider)
         with self.subTest(client="openai", is_instrumented=False):
             self.exporter.clear()
-            with tracing.trace("Test workflow"):
-                with tracing.generation_span(
-                    input=[
-                        {"role": "system", "content": "You are a helpful assistant."},
-                        {"role": "user", "content": "Hello"},
-                    ],
-                    output=[{"role": "assistant", "content": "Hello, World!", "finish_reason": "stop"}],
-                    model=openai_model,
-                    model_config={"temperature": openai_temperature},
-                    usage={"input_tokens": 10, "output_tokens": 20},
-                ):
-                    call_mock_llm("openai")
-                    call_mock_llm("anthropic")
+            call_mock_llm("openai", invoke_llm_callback=invoke_agent, is_async=True)
 
             spans = self.exporter.get_finished_spans()
-            framework_spans = [span for span in spans if GEN_AI_SYSTEM_INSTRUCTIONS in span.attributes]
+            framework_spans = [
+                span
+                for span in spans
+                if span.attributes.get(GEN_AI_OPERATION_NAME) == GenAiOperationNameValues.CHAT.value
+                and GEN_AI_SYSTEM_INSTRUCTIONS in span.attributes
+            ]
             self.assertEqual(len(framework_spans), 1)
             framework_span = framework_spans[0]
             self.assertEqual(framework_span.kind, SpanKind.CLIENT)
@@ -264,21 +277,19 @@ class TestOpenAIAgentsTracingProcessor(unittest.TestCase):
             )
         with self.subTest(client="bedrock", is_instrumented=True):
             self.exporter.clear()
-            with tracing.trace("Test workflow"):
-                with tracing.generation_span(
-                    input=[
-                        {"role": "system", "content": "You are a helpful assistant."},
-                        {"role": "user", "content": "Hello"},
-                    ],
-                    output=[{"role": "assistant", "content": "Hello, World!", "finish_reason": "stop"}],
-                    model=f"bedrock/{bedrock_model}",
-                    model_config={"temperature": bedrock_temperature},
-                    usage={"input_tokens": 10, "output_tokens": 20},
-                ):
-                    call_mock_llm("bedrock")
+            call_mock_llm(
+                "openai",
+                invoke_llm_callback=lambda client: invoke_agent(client, is_instrumented=True),
+                is_async=True,
+            )
 
             spans = self.exporter.get_finished_spans()
-            framework_spans = [span for span in spans if GEN_AI_SYSTEM_INSTRUCTIONS in span.attributes]
+            framework_spans = [
+                span
+                for span in spans
+                if span.attributes.get(GEN_AI_OPERATION_NAME) == GenAiOperationNameValues.CHAT.value
+                and GEN_AI_SYSTEM_INSTRUCTIONS in span.attributes
+            ]
             self.assertEqual(len(framework_spans), 1)
             framework_span = framework_spans[0]
             child_spans = [
