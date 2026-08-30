@@ -73,10 +73,6 @@ def call_mock_llm(provider: str, **kwargs: Any) -> None:  # pylint: disable=too-
     temperature = kwargs.get("temperature", config["temperature"])
     top_k = kwargs.get("top_k", config["top_k"])
     max_tokens = kwargs.get("max_tokens", config["max_tokens"])
-    messages = [
-        {"role": "system", "content": "You are a helpful assistant."},
-        {"role": "user", "content": "Hello"},
-    ]
 
     if provider in ("openai", "litellm"):
         import asyncio
@@ -126,7 +122,7 @@ def call_mock_llm(provider: str, **kwargs: Any) -> None:  # pylint: disable=too-
                 previous_client_session = litellm.client_session
                 litellm.client_session = http_client
                 try:
-                    llm.call(messages)
+                    llm.call(kwargs["messages"])
                 finally:
                     litellm.client_session = previous_client_session
             else:
@@ -136,7 +132,10 @@ def call_mock_llm(provider: str, **kwargs: Any) -> None:  # pylint: disable=too-
                 elif llm is None:
                     client.chat.completions.create(
                         model=model,
-                        messages=messages,
+                        messages=[
+                            {"role": "system", "content": "You are a helpful assistant."},
+                            {"role": "user", "content": "Hello"},
+                        ],
                         temperature=temperature,
                     )
                 else:
@@ -144,7 +143,7 @@ def call_mock_llm(provider: str, **kwargs: Any) -> None:  # pylint: disable=too-
                         llm._client = client
                     else:
                         llm.client = client
-                    llm.call(messages)
+                    llm.call(kwargs["messages"])
         return
 
     if provider == "anthropic":
@@ -190,7 +189,7 @@ def call_mock_llm(provider: str, **kwargs: Any) -> None:  # pylint: disable=too-
                     llm._client = client
                 else:
                     llm.client = client
-                llm.call(messages)
+                llm.call(kwargs["messages"])
         return
 
     if provider == "bedrock":
@@ -229,4 +228,4 @@ def call_mock_llm(provider: str, **kwargs: Any) -> None:  # pylint: disable=too-
                     llm._client = client
                 else:
                     llm.client = client
-                llm.call(messages)
+                llm.call(kwargs["messages"])

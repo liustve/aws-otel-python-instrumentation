@@ -93,6 +93,10 @@ class TestCrewAIInstrumentor(TestCase):
         anthropic_temperature = 1.0
         bedrock_model = "anthropic.claude-fable-5"
         bedrock_temperature = 0.7
+        messages = [
+            {"role": "system", "content": "You are a helpful assistant."},
+            {"role": "user", "content": "Hello"},
+        ]
         httpx_instrumentor = HTTPXClientInstrumentor()
         httpx2_instrumentor = HTTPX2ClientInstrumentor()
         botocore_instrumentor = BotocoreInstrumentor()
@@ -108,7 +112,7 @@ class TestCrewAIInstrumentor(TestCase):
                 model=f"openai/{openai_model}",
                 temperature=openai_temperature,
             )
-            call_mock_llm("openai", llm=source)
+            call_mock_llm("openai", llm=source, messages=messages)
 
             spans = self.span_exporter.get_finished_spans()
             framework_spans = [span for span in spans if GEN_AI_SYSTEM_INSTRUCTIONS in span.attributes]
@@ -125,7 +129,7 @@ class TestCrewAIInstrumentor(TestCase):
                 temperature=anthropic_temperature,
                 max_tokens=100,
             )
-            call_mock_llm("anthropic", llm=source)
+            call_mock_llm("anthropic", llm=source, messages=messages)
 
             spans = self.span_exporter.get_finished_spans()
             framework_spans = [span for span in spans if GEN_AI_SYSTEM_INSTRUCTIONS in span.attributes]
@@ -142,7 +146,7 @@ class TestCrewAIInstrumentor(TestCase):
                 is_litellm=True,
                 temperature=openai_temperature,
             )
-            call_mock_llm("litellm", llm=source)
+            call_mock_llm("litellm", llm=source, messages=messages)
 
             spans = self.span_exporter.get_finished_spans()
             framework_spans = [span for span in spans if GEN_AI_SYSTEM_INSTRUCTIONS in span.attributes]
@@ -161,7 +165,7 @@ class TestCrewAIInstrumentor(TestCase):
                 aws_access_key_id="fake-key",
                 aws_secret_access_key="fake-key",
             )
-            call_mock_llm("bedrock", llm=source)
+            call_mock_llm("bedrock", llm=source, messages=messages)
 
             spans = self.span_exporter.get_finished_spans()
             framework_spans = [span for span in spans if GEN_AI_SYSTEM_INSTRUCTIONS in span.attributes]
