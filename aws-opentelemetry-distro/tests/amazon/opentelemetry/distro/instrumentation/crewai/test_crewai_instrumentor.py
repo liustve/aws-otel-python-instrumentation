@@ -122,7 +122,7 @@ class TestCrewAIInstrumentor(TestCase):
                 model=f"openai/{openai_model}",
                 temperature=openai_temperature,
             )
-            call_mock_llm("openai", invoke=partial(invoke_llm, source))
+            call_mock_llm("openai", invoke_llm_callback=partial(invoke_llm, source))
 
             spans = self.span_exporter.get_finished_spans()
             framework_spans = [span for span in spans if GEN_AI_SYSTEM_INSTRUCTIONS in span.attributes]
@@ -139,7 +139,7 @@ class TestCrewAIInstrumentor(TestCase):
                 temperature=anthropic_temperature,
                 max_tokens=100,
             )
-            call_mock_llm("anthropic", invoke=partial(invoke_llm, source))
+            call_mock_llm("anthropic", invoke_llm_callback=partial(invoke_llm, source))
 
             spans = self.span_exporter.get_finished_spans()
             framework_spans = [span for span in spans if GEN_AI_SYSTEM_INSTRUCTIONS in span.attributes]
@@ -156,7 +156,7 @@ class TestCrewAIInstrumentor(TestCase):
                 is_litellm=True,
                 temperature=openai_temperature,
             )
-            call_mock_llm("litellm", invoke=partial(invoke_llm, source))
+            call_mock_llm("litellm", invoke_llm_callback=partial(invoke_llm, source))
 
             spans = self.span_exporter.get_finished_spans()
             framework_spans = [span for span in spans if GEN_AI_SYSTEM_INSTRUCTIONS in span.attributes]
@@ -175,7 +175,7 @@ class TestCrewAIInstrumentor(TestCase):
                 aws_access_key_id="fake-key",
                 aws_secret_access_key="fake-key",
             )
-            call_mock_llm("bedrock", invoke=partial(invoke_llm, source))
+            call_mock_llm("bedrock", invoke_llm_callback=partial(invoke_llm, source))
 
             spans = self.span_exporter.get_finished_spans()
             framework_spans = [span for span in spans if GEN_AI_SYSTEM_INSTRUCTIONS in span.attributes]

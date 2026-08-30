@@ -189,7 +189,7 @@ class TestLangChainInstrumentor(TestCase):
                     temperature=openai_temperature,
                 ).invoke(messages)
 
-            call_mock_llm("openai", invoke=invoke_openai)
+            call_mock_llm("openai", invoke_llm_callback=invoke_openai)
 
             spans = self.span_exporter.get_finished_spans()
             framework_spans = [span for span in spans if GEN_AI_SYSTEM_INSTRUCTIONS in span.attributes]
@@ -212,7 +212,7 @@ class TestLangChainInstrumentor(TestCase):
                 chat_model._client = client
                 chat_model.invoke(messages)
 
-            call_mock_llm("anthropic", invoke=invoke_anthropic)
+            call_mock_llm("anthropic", invoke_llm_callback=invoke_anthropic)
 
             spans = self.span_exporter.get_finished_spans()
             framework_spans = [span for span in spans if GEN_AI_SYSTEM_INSTRUCTIONS in span.attributes]
@@ -232,7 +232,7 @@ class TestLangChainInstrumentor(TestCase):
                     temperature=bedrock_temperature,
                 ).invoke(messages)
 
-            call_mock_llm("bedrock", invoke=invoke_bedrock)
+            call_mock_llm("bedrock", invoke_llm_callback=invoke_bedrock)
 
             spans = self.span_exporter.get_finished_spans()
             framework_spans = [span for span in spans if GEN_AI_SYSTEM_INSTRUCTIONS in span.attributes]

@@ -65,9 +65,8 @@ def call_mock_llm(provider: str, **kwargs: Any) -> None:  # pylint: disable=too-
     if config is None:
         raise ValueError(f"Unsupported LLM provider: {provider}")
 
-    invoke = kwargs.get("invoke")
+    invoke_llm_callback = kwargs.get("invoke_llm_callback")
     is_async = kwargs.get("is_async", False)
-    before_response = kwargs.get("before_response")
     model = kwargs.get("model", config["model"])
     temperature = kwargs.get("temperature", config["temperature"])
     top_k = kwargs.get("top_k", config["top_k"])
@@ -80,8 +79,6 @@ def call_mock_llm(provider: str, **kwargs: Any) -> None:  # pylint: disable=too-
         from openai import AsyncOpenAI, OpenAI
 
         def openai_response(request):
-            if before_response:
-                before_response()
             return httpx.Response(
                 200,
                 request=request,
@@ -107,7 +104,7 @@ def call_mock_llm(provider: str, **kwargs: Any) -> None:  # pylint: disable=too-
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
             try:
-                invoke(AsyncOpenAI(api_key="fake-key", http_client=http_client))
+                invoke_llm_callback(AsyncOpenAI(api_key="fake-key", http_client=http_client))
             finally:
                 loop.run_until_complete(http_client.aclose())
                 asyncio.set_event_loop(None)
@@ -121,11 +118,11 @@ def call_mock_llm(provider: str, **kwargs: Any) -> None:  # pylint: disable=too-
                 previous_client_session = litellm.client_session
                 litellm.client_session = http_client
                 try:
-                    invoke(None)
+                    invoke_llm_callback(None)
                 finally:
                     litellm.client_session = previous_client_session
             else:
-                invoke(OpenAI(api_key="fake-key", http_client=http_client))
+                invoke_llm_callback(OpenAI(api_key="fake-key", http_client=http_client))
         return
 
     if provider == "anthropic":
@@ -149,7 +146,7 @@ def call_mock_llm(provider: str, **kwargs: Any) -> None:  # pylint: disable=too-
             )
         )
         with DefaultHttpxClient(transport=transport) as http_client:
-            invoke(Anthropic(api_key="fake-key", http_client=http_client))
+            invoke_llm_callback(Anthropic(api_key="fake-key", http_client=http_client))
         return
 
     if provider == "bedrock":
@@ -176,9 +173,9 @@ def call_mock_llm(provider: str, **kwargs: Any) -> None:  # pylint: disable=too-
             "metrics": {"latencyMs": 1},
         }
         with Stubber(client) as stubber:
-            if invoke:
+            if invoke_llm_callback:
                 stubber.add_response("converse", response)
-                invoke(client)
+                invoke_llm_callback(client)
             else:
                 stubber.add_response("converse", response, request)
                 client.converse(**request)

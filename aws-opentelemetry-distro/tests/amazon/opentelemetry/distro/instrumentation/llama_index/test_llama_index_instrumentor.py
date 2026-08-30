@@ -151,7 +151,7 @@ class TestLlamaIndexInstrumentor(unittest.TestCase):
                 openai_utils.CHAT_MODELS,
                 {openai_model: 1_050_000},
             ):
-                call_mock_llm("openai", invoke=invoke_openai)
+                call_mock_llm("openai", invoke_llm_callback=invoke_openai)
 
             spans = self.span_exporter.get_finished_spans()
             framework_spans = [
@@ -194,7 +194,7 @@ class TestLlamaIndexInstrumentor(unittest.TestCase):
                 anthropic_utils.CLAUDE_MODELS,
                 {anthropic_model: 1_000_000},
             ):
-                call_mock_llm("anthropic", invoke=invoke_anthropic)
+                call_mock_llm("anthropic", invoke_llm_callback=invoke_anthropic)
 
             spans = self.span_exporter.get_finished_spans()
             framework_spans = [
@@ -222,7 +222,7 @@ class TestLlamaIndexInstrumentor(unittest.TestCase):
                 bedrock_utils.BEDROCK_MODELS,
                 {bedrock_model: 1_000_000},
             ):
-                call_mock_llm("bedrock", invoke=invoke_bedrock)
+                call_mock_llm("bedrock", invoke_llm_callback=invoke_bedrock)
 
             spans = self.span_exporter.get_finished_spans()
             framework_spans = [

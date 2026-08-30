@@ -227,7 +227,16 @@ class TestOpenAIAgentsTracingProcessor(unittest.TestCase):
     def test_llm_calls_suppresses_child_http_spans(self):
         openai_model = "gpt-5.6-sol"
 
-        def invoke_agent(client):
+        def invoke_agent(client, is_instrumented=False):
+            if is_instrumented:
+                create = client.chat.completions.create
+
+                async def create_with_bedrock(*args, **kwargs):
+                    call_mock_llm("bedrock")
+                    return await create(*args, **kwargs)
+
+                client.chat.completions.create = create_with_bedrock
+
             Runner.run_sync(
                 Agent(
                     name="Test agent",
@@ -251,7 +260,7 @@ class TestOpenAIAgentsTracingProcessor(unittest.TestCase):
         botocore_instrumentor.instrument(tracer_provider=self.tracer_provider)
         with self.subTest(client="openai", is_instrumented=False):
             self.exporter.clear()
-            call_mock_llm("openai", invoke=invoke_agent, is_async=True)
+            call_mock_llm("openai", invoke_llm_callback=invoke_agent, is_async=True)
 
             spans = self.exporter.get_finished_spans()
             framework_spans = [
@@ -270,9 +279,8 @@ class TestOpenAIAgentsTracingProcessor(unittest.TestCase):
             self.exporter.clear()
             call_mock_llm(
                 "openai",
-                invoke=invoke_agent,
+                invoke_llm_callback=lambda client: invoke_agent(client, is_instrumented=True),
                 is_async=True,
-                before_response=lambda: call_mock_llm("bedrock"),
             )
 
             spans = self.exporter.get_finished_spans()
