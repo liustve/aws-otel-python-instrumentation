@@ -65,7 +65,6 @@ def call_mock_llm(provider: str, **kwargs: Any) -> None:  # pylint: disable=too-
     if config is None:
         raise ValueError(f"Unsupported LLM provider: {provider}")
 
-    llm = kwargs.get("llm")
     invoke = kwargs.get("invoke")
     is_async = kwargs.get("is_async", False)
     before_response = kwargs.get("before_response")
@@ -122,33 +121,14 @@ def call_mock_llm(provider: str, **kwargs: Any) -> None:  # pylint: disable=too-
                 previous_client_session = litellm.client_session
                 litellm.client_session = http_client
                 try:
-                    llm.call(kwargs["messages"])
+                    invoke(None)
                 finally:
                     litellm.client_session = previous_client_session
             else:
-                client = OpenAI(api_key="fake-key", http_client=http_client)
-                if invoke:
-                    invoke(client)
-                elif llm is None:
-                    client.chat.completions.create(
-                        model=model,
-                        messages=[
-                            {"role": "system", "content": "You are a helpful assistant."},
-                            {"role": "user", "content": "Hello"},
-                        ],
-                        temperature=temperature,
-                    )
-                else:
-                    if hasattr(llm, "_client"):
-                        llm._client = client
-                    else:
-                        llm.client = client
-                    llm.call(kwargs["messages"])
+                invoke(OpenAI(api_key="fake-key", http_client=http_client))
         return
 
     if provider == "anthropic":
-        from inspect import signature
-
         from anthropic import Anthropic, DefaultHttpxClient, _base_client
 
         anthropic_httpx = getattr(_base_client, "httpx2", None) or _base_client.httpx
@@ -168,28 +148,8 @@ def call_mock_llm(provider: str, **kwargs: Any) -> None:  # pylint: disable=too-
                 },
             )
         )
-        request = {
-            "model": model,
-            "max_tokens": max_tokens,
-            "messages": [{"role": "user", "content": "Hello"}],
-        }
         with DefaultHttpxClient(transport=transport) as http_client:
-            client = Anthropic(api_key="fake-key", http_client=http_client)
-            if invoke:
-                invoke(client)
-            elif llm is None:
-                supported_parameters = signature(client.messages.create).parameters
-                if "temperature" in supported_parameters:
-                    request["temperature"] = temperature
-                if top_k is not None and "top_k" in supported_parameters:
-                    request["top_k"] = top_k
-                client.messages.create(**request)
-            else:
-                if hasattr(llm, "_client"):
-                    llm._client = client
-                else:
-                    llm.client = client
-                llm.call(kwargs["messages"])
+            invoke(Anthropic(api_key="fake-key", http_client=http_client))
         return
 
     if provider == "bedrock":
@@ -219,13 +179,6 @@ def call_mock_llm(provider: str, **kwargs: Any) -> None:  # pylint: disable=too-
             if invoke:
                 stubber.add_response("converse", response)
                 invoke(client)
-            elif llm is None:
+            else:
                 stubber.add_response("converse", response, request)
                 client.converse(**request)
-            else:
-                stubber.add_response("converse", response)
-                if hasattr(llm, "_client"):
-                    llm._client = client
-                else:
-                    llm.client = client
-                llm.call(kwargs["messages"])
