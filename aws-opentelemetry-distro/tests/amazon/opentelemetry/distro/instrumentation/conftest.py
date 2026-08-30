@@ -66,6 +66,9 @@ def call_mock_llm(provider: str, **kwargs: Any) -> None:  # pylint: disable=too-
         raise ValueError(f"Unsupported LLM provider: {provider}")
 
     llm = kwargs.get("llm")
+    invoke = kwargs.get("invoke")
+    is_async = kwargs.get("is_async", False)
+    before_response = kwargs.get("before_response")
     model = kwargs.get("model", config["model"])
     temperature = kwargs.get("temperature", config["temperature"])
     top_k = kwargs.get("top_k", config["top_k"])
@@ -76,11 +79,15 @@ def call_mock_llm(provider: str, **kwargs: Any) -> None:  # pylint: disable=too-
     ]
 
     if provider in ("openai", "litellm"):
-        import httpx
-        from openai import OpenAI
+        import asyncio
 
-        transport = httpx.MockTransport(
-            lambda request: httpx.Response(
+        import httpx
+        from openai import AsyncOpenAI, OpenAI
+
+        def openai_response(request):
+            if before_response:
+                before_response()
+            return httpx.Response(
                 200,
                 request=request,
                 json={
@@ -98,7 +105,20 @@ def call_mock_llm(provider: str, **kwargs: Any) -> None:  # pylint: disable=too-
                     "usage": {"prompt_tokens": 10, "completion_tokens": 20, "total_tokens": 30},
                 },
             )
-        )
+
+        transport = httpx.MockTransport(openai_response)
+        if is_async:
+            http_client = httpx.AsyncClient(transport=transport)
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                invoke(AsyncOpenAI(api_key="fake-key", http_client=http_client))
+            finally:
+                loop.run_until_complete(http_client.aclose())
+                asyncio.set_event_loop(None)
+                loop.close()
+            return
+
         with httpx.Client(transport=transport) as http_client:
             if provider == "litellm":
                 import litellm
@@ -111,7 +131,9 @@ def call_mock_llm(provider: str, **kwargs: Any) -> None:  # pylint: disable=too-
                     litellm.client_session = previous_client_session
             else:
                 client = OpenAI(api_key="fake-key", http_client=http_client)
-                if llm is None:
+                if invoke:
+                    invoke(client)
+                elif llm is None:
                     client.chat.completions.create(
                         model=model,
                         messages=messages,
@@ -154,7 +176,9 @@ def call_mock_llm(provider: str, **kwargs: Any) -> None:  # pylint: disable=too-
         }
         with DefaultHttpxClient(transport=transport) as http_client:
             client = Anthropic(api_key="fake-key", http_client=http_client)
-            if llm is None:
+            if invoke:
+                invoke(client)
+            elif llm is None:
                 supported_parameters = signature(client.messages.create).parameters
                 if "temperature" in supported_parameters:
                     request["temperature"] = temperature
@@ -193,7 +217,10 @@ def call_mock_llm(provider: str, **kwargs: Any) -> None:  # pylint: disable=too-
             "metrics": {"latencyMs": 1},
         }
         with Stubber(client) as stubber:
-            if llm is None:
+            if invoke:
+                stubber.add_response("converse", response)
+                invoke(client)
+            elif llm is None:
                 stubber.add_response("converse", response, request)
                 client.converse(**request)
             else:

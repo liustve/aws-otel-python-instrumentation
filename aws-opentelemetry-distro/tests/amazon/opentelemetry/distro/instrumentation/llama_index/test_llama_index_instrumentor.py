@@ -10,7 +10,7 @@ import inspect
 import json
 import sys
 import unittest
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, PropertyMock, patch
 
 from conftest import call_mock_llm, validate_otel_genai_schema
 
@@ -33,6 +33,7 @@ from llama_index.core.llms.function_calling import FunctionCallingLLM
 from llama_index.core.llms.llm import ToolSelection
 from llama_index.core.tools import FunctionTool
 from llama_index.core.tools.types import ToolOutput
+from llama_index.llms.anthropic import Anthropic as _Anthropic
 from llama_index.llms.bedrock_converse import BedrockConverse as _BedrockConverse
 from llama_index.llms.openai import OpenAI as _OpenAI
 
@@ -108,13 +109,20 @@ class TestLlamaIndexInstrumentor(unittest.TestCase):
         self.span_exporter.clear()
 
     def test_llm_calls_suppresses_child_http_spans(self):
+        from llama_index.llms.anthropic import utils as anthropic_utils
         from llama_index.llms.bedrock_converse import utils as bedrock_utils
         from llama_index.llms.openai import utils as openai_utils
 
         openai_model = "gpt-5.6-sol"
         openai_temperature = 1.0
+        anthropic_model = "claude-fable-5"
+        anthropic_temperature = 1.0
         bedrock_model = "anthropic.claude-fable-5"
         bedrock_temperature = 0.7
+        messages = [
+            ChatMessage(role=MessageRole.SYSTEM, content="You are a helpful assistant."),
+            ChatMessage(role=MessageRole.USER, content="Hello"),
+        ]
         httpx_instrumentor = HTTPXClientInstrumentor()
         httpx2_instrumentor = HTTPX2ClientInstrumentor()
         botocore_instrumentor = BotocoreInstrumentor()
@@ -126,51 +134,74 @@ class TestLlamaIndexInstrumentor(unittest.TestCase):
         botocore_instrumentor.instrument(tracer_provider=self.tracer_provider)
         with self.subTest(client="openai", is_instrumented=False):
             self.span_exporter.clear()
+
+            def invoke_openai(client):
+                _OpenAI(
+                    model=openai_model,
+                    api_key="fake-key",
+                    openai_client=client,
+                    temperature=openai_temperature,
+                    max_tokens=100,
+                ).chat(messages)
+
             with patch.dict(
                 openai_utils.ALL_AVAILABLE_MODELS,
                 {openai_model: 1_050_000},
+            ), patch.dict(
+                openai_utils.CHAT_MODELS,
+                {openai_model: 1_050_000},
             ):
-                client = _OpenAI(
-                    model=openai_model,
-                    api_key="fake-key",
-                    temperature=openai_temperature,
-                )
-                bound_args = Mock(spec=inspect.BoundArguments)
-                bound_args.kwargs = {}
-                span = self.instrumentor._span_handler.new_span(
-                    id_=f"{client.__class__.__name__}.chat-1",
-                    bound_args=bound_args,
-                    instance=client,
-                )
-            span.process_event(
-                LLMChatStartEvent(
-                    messages=[
-                        ChatMessage(role=MessageRole.SYSTEM, content="You are a helpful assistant."),
-                        ChatMessage(role=MessageRole.USER, content="Hello"),
-                    ],
-                    additional_kwargs={},
-                    model_dict={},
-                )
-            )
-            call_mock_llm("openai")
-            call_mock_llm("anthropic")
-            span.process_event(
-                _LLMChatEndEvent(
-                    messages=[],
-                    response=ChatResponse(
-                        message=ChatMessage(role=MessageRole.ASSISTANT, content="Hello, World!"),
-                        raw={
-                            "model": openai_model,
-                            "choices": [{"finish_reason": "stop"}],
-                            "usage": {"prompt_tokens": 10, "completion_tokens": 20},
-                        },
-                    ),
-                )
-            )
-            span.end()
+                call_mock_llm("openai", invoke=invoke_openai)
 
             spans = self.span_exporter.get_finished_spans()
-            framework_spans = [span for span in spans if GEN_AI_SYSTEM_INSTRUCTIONS in span.attributes]
+            framework_spans = [
+                span
+                for span in spans
+                if span.attributes.get(GEN_AI_OPERATION_NAME) == GenAiOperationNameValues.CHAT.value
+            ]
+            self.assertEqual(len(framework_spans), 1)
+            framework_span = framework_spans[0]
+            self.assertEqual(framework_span.kind, SpanKind.CLIENT)
+            self.assertFalse(
+                any(span.parent and span.parent.span_id == framework_span.context.span_id for span in spans)
+            )
+        with self.subTest(client="anthropic", is_instrumented=False):
+            self.span_exporter.clear()
+
+            def invoke_anthropic(client):
+                llm = _Anthropic(
+                    model=anthropic_model,
+                    api_key="fake-key",
+                    max_tokens=100,
+                    temperature=anthropic_temperature,
+                )
+                llm._client = client
+                model_kwargs = {
+                    "model": anthropic_model,
+                    "max_tokens": 100,
+                }
+                if "temperature" in inspect.signature(client.beta.messages.create).parameters:
+                    model_kwargs["temperature"] = anthropic_temperature
+                with patch.object(
+                    type(llm),
+                    "_model_kwargs",
+                    new_callable=PropertyMock,
+                    return_value=model_kwargs,
+                ):
+                    llm.chat(messages)
+
+            with patch.dict(
+                anthropic_utils.CLAUDE_MODELS,
+                {anthropic_model: 1_000_000},
+            ):
+                call_mock_llm("anthropic", invoke=invoke_anthropic)
+
+            spans = self.span_exporter.get_finished_spans()
+            framework_spans = [
+                span
+                for span in spans
+                if span.attributes.get(GEN_AI_OPERATION_NAME) == GenAiOperationNameValues.CHAT.value
+            ]
             self.assertEqual(len(framework_spans), 1)
             framework_span = framework_spans[0]
             self.assertEqual(framework_span.kind, SpanKind.CLIENT)
@@ -179,52 +210,27 @@ class TestLlamaIndexInstrumentor(unittest.TestCase):
             )
         with self.subTest(client="bedrock", is_instrumented=True):
             self.span_exporter.clear()
+
+            def invoke_bedrock(client):
+                _BedrockConverse(
+                    model=bedrock_model,
+                    client=client,
+                    temperature=bedrock_temperature,
+                ).chat(messages)
+
             with patch.dict(
                 bedrock_utils.BEDROCK_MODELS,
                 {bedrock_model: 1_000_000},
             ):
-                client = _BedrockConverse(
-                    model=bedrock_model,
-                    region_name="us-east-1",
-                    aws_access_key_id="fake-key",
-                    aws_secret_access_key="fake-key",
-                    temperature=bedrock_temperature,
-                )
-                bound_args = Mock(spec=inspect.BoundArguments)
-                bound_args.kwargs = {}
-                span = self.instrumentor._span_handler.new_span(
-                    id_=f"{client.__class__.__name__}.chat-1",
-                    bound_args=bound_args,
-                    instance=client,
-                )
-            span.process_event(
-                LLMChatStartEvent(
-                    messages=[
-                        ChatMessage(role=MessageRole.SYSTEM, content="You are a helpful assistant."),
-                        ChatMessage(role=MessageRole.USER, content="Hello"),
-                    ],
-                    additional_kwargs={},
-                    model_dict={},
-                )
-            )
-            call_mock_llm("bedrock")
-            span.process_event(
-                _LLMChatEndEvent(
-                    messages=[],
-                    response=ChatResponse(
-                        message=ChatMessage(role=MessageRole.ASSISTANT, content="Hello, World!"),
-                        raw={
-                            "model": bedrock_model,
-                            "choices": [{"finish_reason": "stop"}],
-                            "usage": {"prompt_tokens": 10, "completion_tokens": 20},
-                        },
-                    ),
-                )
-            )
-            span.end()
+                call_mock_llm("bedrock", invoke=invoke_bedrock)
 
             spans = self.span_exporter.get_finished_spans()
-            framework_spans = [span for span in spans if GEN_AI_SYSTEM_INSTRUCTIONS in span.attributes]
+            framework_spans = [
+                span
+                for span in spans
+                if span.attributes.get(GEN_AI_OPERATION_NAME) == GenAiOperationNameValues.CHAT.value
+                and GEN_AI_SYSTEM_INSTRUCTIONS in span.attributes
+            ]
             self.assertEqual(len(framework_spans), 1)
             framework_span = framework_spans[0]
             child_spans = [
