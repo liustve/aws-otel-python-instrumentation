@@ -55,16 +55,27 @@ def call_mock_llm(provider: str, **kwargs: Any) -> None:  # pylint: disable=too-
             "top_k": 250,
             "max_tokens": 100,
         },
+        "litellm": {
+            "model": "gpt-5.6-sol",
+            "temperature": 1.0,
+            "top_k": None,
+            "max_tokens": 100,
+        },
     }.get(provider)
     if config is None:
         raise ValueError(f"Unsupported LLM provider: {provider}")
 
+    llm = kwargs.get("llm")
     model = kwargs.get("model", config["model"])
     temperature = kwargs.get("temperature", config["temperature"])
     top_k = kwargs.get("top_k", config["top_k"])
     max_tokens = kwargs.get("max_tokens", config["max_tokens"])
+    messages = [
+        {"role": "system", "content": "You are a helpful assistant."},
+        {"role": "user", "content": "Hello"},
+    ]
 
-    if provider == "openai":
+    if provider in ("openai", "litellm"):
         import httpx
         from openai import OpenAI
 
@@ -89,11 +100,29 @@ def call_mock_llm(provider: str, **kwargs: Any) -> None:  # pylint: disable=too-
             )
         )
         with httpx.Client(transport=transport) as http_client:
-            OpenAI(api_key="fake-key", http_client=http_client).chat.completions.create(
-                model=model,
-                messages=[{"role": "user", "content": "Hello"}],
-                temperature=temperature,
-            )
+            if provider == "litellm":
+                import litellm
+
+                previous_client_session = litellm.client_session
+                litellm.client_session = http_client
+                try:
+                    llm.call(messages)
+                finally:
+                    litellm.client_session = previous_client_session
+            else:
+                client = OpenAI(api_key="fake-key", http_client=http_client)
+                if llm is None:
+                    client.chat.completions.create(
+                        model=model,
+                        messages=messages,
+                        temperature=temperature,
+                    )
+                else:
+                    if hasattr(llm, "_client"):
+                        llm._client = client
+                    else:
+                        llm.client = client
+                    llm.call(messages)
         return
 
     if provider == "anthropic":
@@ -125,12 +154,19 @@ def call_mock_llm(provider: str, **kwargs: Any) -> None:  # pylint: disable=too-
         }
         with DefaultHttpxClient(transport=transport) as http_client:
             client = Anthropic(api_key="fake-key", http_client=http_client)
-            supported_parameters = signature(client.messages.create).parameters
-            if "temperature" in supported_parameters:
-                request["temperature"] = temperature
-            if top_k is not None and "top_k" in supported_parameters:
-                request["top_k"] = top_k
-            client.messages.create(**request)
+            if llm is None:
+                supported_parameters = signature(client.messages.create).parameters
+                if "temperature" in supported_parameters:
+                    request["temperature"] = temperature
+                if top_k is not None and "top_k" in supported_parameters:
+                    request["top_k"] = top_k
+                client.messages.create(**request)
+            else:
+                if hasattr(llm, "_client"):
+                    llm._client = client
+                else:
+                    llm.client = client
+                llm.call(messages)
         return
 
     if provider == "bedrock":
@@ -157,5 +193,13 @@ def call_mock_llm(provider: str, **kwargs: Any) -> None:  # pylint: disable=too-
             "metrics": {"latencyMs": 1},
         }
         with Stubber(client) as stubber:
-            stubber.add_response("converse", response, request)
-            client.converse(**request)
+            if llm is None:
+                stubber.add_response("converse", response, request)
+                client.converse(**request)
+            else:
+                stubber.add_response("converse", response)
+                if hasattr(llm, "_client"):
+                    llm._client = client
+                else:
+                    llm.client = client
+                llm.call(messages)

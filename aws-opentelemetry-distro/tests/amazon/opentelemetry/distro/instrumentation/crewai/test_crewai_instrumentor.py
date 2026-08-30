@@ -89,6 +89,8 @@ class TestCrewAIInstrumentor(TestCase):
     def test_llm_calls_suppresses_child_http_spans(self):
         openai_model = "gpt-5.6-sol"
         openai_temperature = 1.0
+        anthropic_model = "claude-fable-5"
+        anthropic_temperature = 1.0
         bedrock_model = "anthropic.claude-fable-5"
         bedrock_temperature = 0.7
         httpx_instrumentor = HTTPXClientInstrumentor()
@@ -104,37 +106,43 @@ class TestCrewAIInstrumentor(TestCase):
             self.span_exporter.clear()
             source = LLM(
                 model=f"openai/{openai_model}",
+                temperature=openai_temperature,
+            )
+            call_mock_llm("openai", llm=source)
+
+            spans = self.span_exporter.get_finished_spans()
+            framework_spans = [span for span in spans if GEN_AI_SYSTEM_INSTRUCTIONS in span.attributes]
+            self.assertEqual(len(framework_spans), 1)
+            framework_span = framework_spans[0]
+            self.assertEqual(framework_span.kind, SpanKind.CLIENT)
+            self.assertFalse(
+                any(span.parent and span.parent.span_id == framework_span.context.span_id for span in spans)
+            )
+        with self.subTest(client="anthropic", is_instrumented=False):
+            self.span_exporter.clear()
+            source = LLM(
+                model=f"anthropic/{anthropic_model}",
+                temperature=anthropic_temperature,
+                max_tokens=100,
+            )
+            call_mock_llm("anthropic", llm=source)
+
+            spans = self.span_exporter.get_finished_spans()
+            framework_spans = [span for span in spans if GEN_AI_SYSTEM_INSTRUCTIONS in span.attributes]
+            self.assertEqual(len(framework_spans), 1)
+            framework_span = framework_spans[0]
+            self.assertEqual(framework_span.kind, SpanKind.CLIENT)
+            self.assertFalse(
+                any(span.parent and span.parent.span_id == framework_span.context.span_id for span in spans)
+            )
+        with self.subTest(client="litellm", is_instrumented=False):
+            self.span_exporter.clear()
+            source = LLM(
+                model=f"openai/{openai_model}",
                 is_litellm=True,
                 temperature=openai_temperature,
             )
-            usage = iter(
-                [
-                    MagicMock(prompt_tokens=0, completion_tokens=0),
-                    MagicMock(prompt_tokens=10, completion_tokens=20),
-                ]
-            )
-            source.get_token_usage_summary = lambda: next(usage)
-            start_event = LLMCallStartedEvent(
-                call_id="call-1",
-                messages=[
-                    {"role": "system", "content": "You are a helpful assistant."},
-                    {"role": "user", "content": "Hello"},
-                ],
-            )
-            crewai_event_bus.emit(source, start_event)
-            try:
-                call_mock_llm("openai")
-                call_mock_llm("anthropic")
-            finally:
-                crewai_event_bus.emit(
-                    source,
-                    LLMCallCompletedEvent(
-                        call_id="call-1",
-                        response="Hello, World!",
-                        call_type=LLMCallType.LLM_CALL,
-                        started_event_id=start_event.event_id,
-                    ),
-                )
+            call_mock_llm("litellm", llm=source)
 
             spans = self.span_exporter.get_finished_spans()
             framework_spans = [span for span in spans if GEN_AI_SYSTEM_INSTRUCTIONS in span.attributes]
@@ -148,36 +156,12 @@ class TestCrewAIInstrumentor(TestCase):
             self.span_exporter.clear()
             source = LLM(
                 model=f"bedrock/{bedrock_model}",
-                is_litellm=True,
                 temperature=bedrock_temperature,
+                region_name="us-east-1",
+                aws_access_key_id="fake-key",
+                aws_secret_access_key="fake-key",
             )
-            usage = iter(
-                [
-                    MagicMock(prompt_tokens=0, completion_tokens=0),
-                    MagicMock(prompt_tokens=10, completion_tokens=20),
-                ]
-            )
-            source.get_token_usage_summary = lambda: next(usage)
-            start_event = LLMCallStartedEvent(
-                call_id="call-1",
-                messages=[
-                    {"role": "system", "content": "You are a helpful assistant."},
-                    {"role": "user", "content": "Hello"},
-                ],
-            )
-            crewai_event_bus.emit(source, start_event)
-            try:
-                call_mock_llm("bedrock")
-            finally:
-                crewai_event_bus.emit(
-                    source,
-                    LLMCallCompletedEvent(
-                        call_id="call-1",
-                        response="Hello, World!",
-                        call_type=LLMCallType.LLM_CALL,
-                        started_event_id=start_event.event_id,
-                    ),
-                )
+            call_mock_llm("bedrock", llm=source)
 
             spans = self.span_exporter.get_finished_spans()
             framework_spans = [span for span in spans if GEN_AI_SYSTEM_INSTRUCTIONS in span.attributes]
