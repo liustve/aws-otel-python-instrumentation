@@ -55,6 +55,7 @@ from opentelemetry.semconv._incubating.attributes.gen_ai_attributes import (
     GEN_AI_REQUEST_MAX_TOKENS,
     GEN_AI_REQUEST_MODEL,
     GEN_AI_REQUEST_PRESENCE_PENALTY,
+    GEN_AI_REQUEST_STOP_SEQUENCES,
     GEN_AI_REQUEST_TEMPERATURE,
     GEN_AI_REQUEST_TOP_K,
     GEN_AI_REQUEST_TOP_P,
@@ -87,6 +88,7 @@ class TestLangChainInstrumentor(TestCase):
         max_tokens: int = 100
         frequency_penalty: float = 0.5
         presence_penalty: float = 0.3
+        stop: tuple[str, ...] = ("STOP",)
 
         @property
         def _default_params(self) -> dict:
@@ -98,6 +100,7 @@ class TestLangChainInstrumentor(TestCase):
                 "max_tokens": self.max_tokens,
                 "frequency_penalty": self.frequency_penalty,
                 "presence_penalty": self.presence_penalty,
+                "stop": self.stop,
             }
 
         @classmethod
@@ -278,6 +281,7 @@ class TestLangChainInstrumentor(TestCase):
         self.assertEqual(span.attributes[GEN_AI_REQUEST_MAX_TOKENS], 100)
         self.assertEqual(span.attributes[GEN_AI_REQUEST_FREQUENCY_PENALTY], 0.5)
         self.assertEqual(span.attributes[GEN_AI_REQUEST_PRESENCE_PENALTY], 0.3)
+        self.assertEqual(span.attributes[GEN_AI_REQUEST_STOP_SEQUENCES], ("STOP",))
 
         self.assertIsNotNone(span.attributes.get(GEN_AI_INPUT_MESSAGES))
         input_messages = json.loads(span.attributes[GEN_AI_INPUT_MESSAGES])

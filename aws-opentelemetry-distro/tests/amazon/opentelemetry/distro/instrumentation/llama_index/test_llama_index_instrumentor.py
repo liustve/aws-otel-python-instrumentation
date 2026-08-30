@@ -441,16 +441,32 @@ class TestLlamaIndexInstrumentor(unittest.TestCase):
         self.assertEqual(span._attributes[GEN_AI_PROVIDER_NAME], "openai")
         otel_span.end()
 
-    def test_process_instance_llm_with_temperature_and_max_tokens(self):
-        """Test that temperature and max_tokens are captured from LLM instances."""
+    def test_process_instance_llm_with_request_attributes(self):
         from llama_index.llms.openai import OpenAI
 
-        llm = OpenAI(model="gpt-4", api_key="fake-key", temperature=0.7, max_tokens=100)
+        llm = OpenAI(
+            model="gpt-4",
+            api_key="fake-key",
+            temperature=0.7,
+            max_tokens=100,
+            additional_kwargs={
+                "top_p": 0.9,
+                "top_k": 40,
+                "frequency_penalty": 0.5,
+                "presence_penalty": 0.3,
+                "stop": ["STOP"],
+            },
+        )
         otel_span = self.tracer.start_span("test")
         span = self._Span(otel_span=otel_span)
         span.process_instance(llm)
         self.assertEqual(span._attributes[GEN_AI_REQUEST_TEMPERATURE], 0.7)
+        self.assertEqual(span._attributes[GEN_AI_REQUEST_TOP_P], 0.9)
+        self.assertEqual(span._attributes[GEN_AI_REQUEST_TOP_K], 40)
         self.assertEqual(span._attributes[GEN_AI_REQUEST_MAX_TOKENS], 100)
+        self.assertEqual(span._attributes[GEN_AI_REQUEST_FREQUENCY_PENALTY], 0.5)
+        self.assertEqual(span._attributes[GEN_AI_REQUEST_PRESENCE_PENALTY], 0.3)
+        self.assertEqual(span._attributes[GEN_AI_REQUEST_STOP_SEQUENCES], ["STOP"])
         otel_span.end()
 
     def test_process_instance_embedding(self):

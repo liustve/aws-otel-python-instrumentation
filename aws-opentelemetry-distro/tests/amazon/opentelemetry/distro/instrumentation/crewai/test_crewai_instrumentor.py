@@ -765,7 +765,16 @@ class TestCrewAIInstrumentor(TestCase):
             with test_tracer.start_as_current_span("custom_downstream_span"):
                 return f"Hello, {name}!"
 
-        llm = LLM(model=model, is_litellm=True, temperature=0.7, max_tokens=1024)
+        llm = LLM(
+            model=model,
+            is_litellm=True,
+            temperature=0.7,
+            top_p=0.9,
+            max_tokens=1024,
+            frequency_penalty=0.1,
+            presence_penalty=0.2,
+            stop=["STOP"],
+        )
         llm.supports_function_calling = lambda: True
         agent = Agent(
             role="Greeter",
@@ -821,9 +830,13 @@ class TestCrewAIInstrumentor(TestCase):
                 GEN_AI_AGENT_ID: str(crew.agents[0].id),
                 GEN_AI_AGENT_DESCRIPTION: "Greet the user",
                 GEN_AI_REQUEST_TEMPERATURE: 0.7,
+                GEN_AI_REQUEST_TOP_P: 0.9,
                 GEN_AI_REQUEST_MAX_TOKENS: 1024,
+                GEN_AI_REQUEST_FREQUENCY_PENALTY: 0.1,
+                GEN_AI_REQUEST_PRESENCE_PENALTY: 0.2,
             },
         )
+        self.assertIn("STOP", agent_span.attributes[GEN_AI_REQUEST_STOP_SEQUENCES])
 
         agent_input_messages = json.loads(agent_span.attributes[GEN_AI_INPUT_MESSAGES])
         validate_otel_genai_schema(agent_input_messages, "gen-ai-input-messages")
