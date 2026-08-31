@@ -41,7 +41,7 @@ class TestGenAiNestedClientSpanProcessor(unittest.TestCase):
         self.assertEqual(child_span.kind, SpanKind.CLIENT)
         self.assertEqual(parent_span.kind, SpanKind.INTERNAL)
 
-    def test_http_child_converts_parent(self):
+    def test_http_child_leaves_parent_client(self):
         parent = self._make_llm_span()
         ctx = trace.set_span_in_context(parent)
         child = self.tracer.start_span("POST", kind=SpanKind.CLIENT, context=ctx)
@@ -50,7 +50,24 @@ class TestGenAiNestedClientSpanProcessor(unittest.TestCase):
 
         spans = self.exporter.get_finished_spans()
         parent_span = next(s for s in spans if s.name == "chat model")
-        self.assertEqual(parent_span.kind, SpanKind.INTERNAL)
+        self.assertEqual(parent_span.kind, SpanKind.CLIENT)
+        self.assertEqual(next(s for s in spans if s.name == "POST").kind, SpanKind.CLIENT)
+
+    def test_non_gen_ai_client_children_leave_parent_client(self):
+        for name, attributes in (
+            ("/google.ai.Predict", {"rpc.system": "grpc"}),
+            ("GET", {"db.system": "redis"}),
+        ):
+            with self.subTest(child=name):
+                self.exporter.clear()
+                parent = self._make_llm_span()
+                ctx = trace.set_span_in_context(parent)
+                child = self.tracer.start_span(name, kind=SpanKind.CLIENT, context=ctx, attributes=attributes)
+                child.end()
+                parent.end()
+
+                spans = self.exporter.get_finished_spans()
+                self.assertEqual(next(s for s in spans if s.name == "chat model").kind, SpanKind.CLIENT)
 
     def test_no_child_stays_client(self):
         span = self._make_llm_span()

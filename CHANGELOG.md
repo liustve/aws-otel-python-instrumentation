@@ -14,8 +14,9 @@ If your change does not need a CHANGELOG entry, add the "skip changelog" label t
 
 - (fix): Align and capture missing GenAI request attributes from framework LLM calls
   ([#871](https://github.com/aws-observability/aws-otel-python-instrumentation/pull/871))
-- Use OTel HTTP suppression for GenAI inference spans
-  ([#870](https://github.com/aws-observability/aws-otel-python-instrumentation/pull/870))
+- fix: only demote a GenAI inference span to INTERNAL when it wraps another inference span, so HTTP
+  transport, AWS SDK, gRPC, and database children keep the CLIENT kind the GenAI semantic conventions
+  require ([#870](https://github.com/aws-observability/aws-otel-python-instrumentation/pull/870))
 - fix: align LlamaIndex tools with the OTel GenAI schema and expand GenAI contract coverage
   ([#866](https://github.com/aws-observability/aws-otel-python-instrumentation/pull/866))
 - feat(openai-agents): [BREAKING CHANGE] add native ADOT OpenAI Agents instrumentation and remove the

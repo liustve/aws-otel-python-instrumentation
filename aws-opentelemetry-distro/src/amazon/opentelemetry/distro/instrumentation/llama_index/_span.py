@@ -289,11 +289,12 @@ class _Span(BaseSpan):
         return f"{op} {suffix}" if suffix else op
 
     def end(self, exception: Optional[BaseException] = None) -> None:
+        if not self._otel_span.is_recording():
+            return
+
         if self._context_token is not None:
             try_detach(self._context_token)  # type: ignore[arg-type]
             self._context_token = None
-        if not self._otel_span.is_recording():
-            return
 
         if exception is None:
             status = Status(status_code=StatusCode.OK)

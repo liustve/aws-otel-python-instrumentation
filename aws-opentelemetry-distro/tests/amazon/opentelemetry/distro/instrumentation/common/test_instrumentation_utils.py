@@ -4,7 +4,6 @@ from unittest import TestCase
 from unittest.mock import Mock
 
 from amazon.opentelemetry.distro.instrumentation.common.instrumentation_utils import (
-    attach_otel_context,
     content_to_parts,
     first_not_none,
     get_value,
@@ -16,7 +15,7 @@ from amazon.opentelemetry.distro.instrumentation.common.instrumentation_utils im
     try_wrap,
 )
 from opentelemetry import context
-from opentelemetry.context import _SUPPRESS_HTTP_INSTRUMENTATION_KEY, _SUPPRESS_INSTRUMENTATION_KEY, create_key
+from opentelemetry.context import _SUPPRESS_INSTRUMENTATION_KEY
 from opentelemetry.trace import set_span_in_context
 
 
@@ -129,21 +128,6 @@ class TestInstrumentationUtils(TestCase):
         token = context.attach(set_span_in_context(None))
         context.detach(token)
         try_detach(token)
-
-    def test_attach_otel_context_with_http_suppression(self):
-        key = create_key("test_attach_otel_context")
-        previous_context = context.get_current()
-        token = attach_otel_context(
-            context.set_value(key, "value"),
-            should_suppress_http_instrumentation=True,
-        )
-
-        self.assertEqual(context.get_value(key), "value")
-        self.assertTrue(context.get_value(_SUPPRESS_HTTP_INSTRUMENTATION_KEY))
-
-        try_detach(token)
-        self.assertIs(context.get_current(), previous_context)
-        self.assertIsNone(context.get_value(_SUPPRESS_HTTP_INSTRUMENTATION_KEY))
 
     def test_skip_instrumentation_if_suppressed_allows_when_not_suppressed(self):
         call_count = [0]

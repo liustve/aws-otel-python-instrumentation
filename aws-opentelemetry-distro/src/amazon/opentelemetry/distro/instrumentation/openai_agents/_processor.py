@@ -26,7 +26,6 @@ from typing_extensions import override
 from amazon.opentelemetry.distro.instrumentation.common.instrumentation_utils import (
     PROVIDER_MAP,
     DictWithLock,
-    attach_otel_context,
     content_to_parts,
     first_not_none,
     get_value,
@@ -173,10 +172,7 @@ class OpenTelemetryTracingProcessor(TracingProcessor):
             kind=self._set_span_kind(span_data),
             attributes=attributes,
         )
-        token = attach_otel_context(
-            set_span_in_context(otel_span),
-            should_suppress_http_instrumentation=isinstance(span_data, (GenerationSpanData, ResponseSpanData)),
-        )
+        token = context.attach(set_span_in_context(otel_span))
         self._openai_span_id_to_otel_span_entry.put(
             span.span_id,
             _SpanEntry(span=otel_span, token=token, agent_content=agent_content),

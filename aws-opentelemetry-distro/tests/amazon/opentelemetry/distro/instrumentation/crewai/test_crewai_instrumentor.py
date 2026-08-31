@@ -29,7 +29,6 @@ from amazon.opentelemetry.distro.instrumentation.common.instrumentation_utils im
 )
 from amazon.opentelemetry.distro.instrumentation.crewai import CrewAIInstrumentor
 from opentelemetry import context
-from opentelemetry.context import _SUPPRESS_HTTP_INSTRUMENTATION_KEY
 from opentelemetry.instrumentation.botocore import BotocoreInstrumentor
 from opentelemetry.instrumentation.httpx import HTTPX2ClientInstrumentor, HTTPXClientInstrumentor
 from opentelemetry.sdk.trace import ReadableSpan, TracerProvider
@@ -227,19 +226,11 @@ class TestCrewAIInstrumentor(TestCase):
         handler = self.instrumentor._handler
         previous_context = context.get_current()
         handler._start_span("root", "root")
-        handler._start_span(
-            "chat model",
-            "child",
-            parent_event_id="root",
-            kind=SpanKind.CLIENT,
-            should_suppress_http_instrumentation=True,
-        )
-        self.assertTrue(context.get_value(_SUPPRESS_HTTP_INSTRUMENTATION_KEY))
+        handler._start_span("chat model", "child", parent_event_id="root", kind=SpanKind.CLIENT)
 
         handler._on_crew_completed(None, MagicMock(started_event_id="root"))
 
         self.assertIs(context.get_current(), previous_context)
-        self.assertIsNone(context.get_value(_SUPPRESS_HTTP_INSTRUMENTATION_KEY))
         self.assertEqual(len(handler._event_id_to_span), 0)
 
     def _restore_env(self):

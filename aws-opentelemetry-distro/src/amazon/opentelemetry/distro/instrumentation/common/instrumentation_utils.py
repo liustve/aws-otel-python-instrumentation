@@ -12,7 +12,7 @@ from typing import Any, Callable, Dict, Mapping, Optional, Union
 from wrapt import wrap_function_wrapper
 
 from opentelemetry import context
-from opentelemetry.context import _SUPPRESS_HTTP_INSTRUMENTATION_KEY, _SUPPRESS_INSTRUMENTATION_KEY, Context
+from opentelemetry.context import _SUPPRESS_INSTRUMENTATION_KEY
 from opentelemetry.instrumentation.utils import unwrap
 from opentelemetry.semconv._incubating.attributes.gen_ai_attributes import GenAiProviderNameValues
 
@@ -232,10 +232,3 @@ def try_detach(token: Token) -> None:
         context._RUNTIME_CONTEXT.detach(token)  # pylint: disable=protected-access
     except Exception:  # pylint: disable=broad-except
         pass
-
-
-def attach_otel_context(otel_context: Context, *, should_suppress_http_instrumentation: bool = False) -> Token:
-    """Attach an OTel context, optionally suppressing HTTP instrumentation."""
-    if should_suppress_http_instrumentation:
-        otel_context = context.set_value(_SUPPRESS_HTTP_INSTRUMENTATION_KEY, True, otel_context)
-    return context.attach(otel_context)

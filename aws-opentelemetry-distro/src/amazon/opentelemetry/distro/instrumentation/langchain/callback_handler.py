@@ -15,7 +15,6 @@ from langchain_core.outputs import ChatGenerationChunk, GenerationChunk
 from amazon.opentelemetry.distro.instrumentation.common.instrumentation_utils import (
     PROVIDER_MAP,
     DictWithLock,
-    attach_otel_context,
     content_to_parts,
     first_not_none,
     serialize_to_json_string,
@@ -23,6 +22,7 @@ from amazon.opentelemetry.distro.instrumentation.common.instrumentation_utils im
     to_tool_attribute_value,
     try_detach,
 )
+from opentelemetry import context
 from opentelemetry.semconv._incubating.attributes.gen_ai_attributes import (
     GEN_AI_AGENT_NAME,
     GEN_AI_INPUT_MESSAGES,
@@ -128,13 +128,7 @@ class OpenTelemetryCallbackHandler(BaseCallbackHandler):
             f"{GenAiOperationNameValues.CHAT.value} {model_name}" if model_name else GenAiOperationNameValues.CHAT.value
         )
 
-        span: Span = self._start_span(
-            run_id,
-            parent_run_id,
-            span_name,
-            kind=SpanKind.CLIENT,
-            should_suppress_http_instrumentation=True,
-        )
+        span: Span = self._start_span(run_id, parent_run_id, span_name, kind=SpanKind.CLIENT)
 
         self._set_langgraph_span_attributes(span, metadata)
         self._set_span_attribute(span, GEN_AI_PROVIDER_NAME, provider)
@@ -169,13 +163,7 @@ class OpenTelemetryCallbackHandler(BaseCallbackHandler):
             if model_name
             else GenAiOperationNameValues.TEXT_COMPLETION.value
         )
-        span: Span = self._start_span(
-            run_id,
-            parent_run_id,
-            span_name,
-            kind=SpanKind.CLIENT,
-            should_suppress_http_instrumentation=True,
-        )
+        span: Span = self._start_span(run_id, parent_run_id, span_name, kind=SpanKind.CLIENT)
 
         self._set_langgraph_span_attributes(span, metadata)
         self._set_span_attribute(span, GEN_AI_PROVIDER_NAME, provider)
@@ -821,7 +809,6 @@ class OpenTelemetryCallbackHandler(BaseCallbackHandler):
         parent_run_id: Optional[UUID],
         span_name: str,
         kind: SpanKind = SpanKind.INTERNAL,
-        should_suppress_http_instrumentation: bool = False,
     ) -> Span:
         parent_entry = self.run_id_to_span_map.get(parent_run_id) if parent_run_id else None
         if parent_entry:
@@ -830,10 +817,7 @@ class OpenTelemetryCallbackHandler(BaseCallbackHandler):
         else:
             span = self.tracer.start_span(span_name, kind=kind)
 
-        token = attach_otel_context(
-            set_span_in_context(span),
-            should_suppress_http_instrumentation=should_suppress_http_instrumentation,
-        )
+        token = context.attach(set_span_in_context(span))
         self.run_id_to_span_map.put(run_id, (span, token))
         return span
 

@@ -21,7 +21,6 @@ from llama_index.core.tools.types import ToolOutput
 from pydantic import PrivateAttr
 
 from amazon.opentelemetry.distro.instrumentation.common.instrumentation_utils import (
-    attach_otel_context,
     skip_instrumentation_if_suppressed,
     to_tool_attribute_value,
 )
@@ -169,10 +168,7 @@ class _SpanHandler(BaseSpanHandler[_Span], extra="allow"):
             ),
         )
 
-        token = attach_otel_context(
-            set_span_in_context(otel_span, parent.context if parent else None),
-            should_suppress_http_instrumentation=kind == SpanKind.CLIENT,
-        )
+        token = context_api.attach(set_span_in_context(otel_span, parent.context if parent else None))
 
         span = _Span(
             otel_span=otel_span,

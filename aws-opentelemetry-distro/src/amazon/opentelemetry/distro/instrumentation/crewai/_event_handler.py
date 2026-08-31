@@ -11,7 +11,6 @@ from amazon.opentelemetry.distro.instrumentation.common.instrumentation_utils im
     OPERATION_INVOKE_WORKFLOW,
     PROVIDER_MAP,
     DictWithLock,
-    attach_otel_context,
     content_to_parts,
     first_not_none,
     serialize_to_json_string,
@@ -362,14 +361,7 @@ class OpenTelemetryEventHandler:
                     [self._to_input_message(m) for m in non_system_messages]
                 )
 
-        self._start_span(
-            span_name,
-            event.event_id,
-            attributes,
-            event.parent_event_id,
-            kind=SpanKind.CLIENT,
-            should_suppress_http_instrumentation=True,
-        )
+        self._start_span(span_name, event.event_id, attributes, event.parent_event_id, kind=SpanKind.CLIENT)
 
     def _on_llm_completed(  # pylint: disable=too-many-locals,too-many-branches
         self, source: "BaseLLM", event: "LLMCallCompletedEvent"
@@ -458,7 +450,6 @@ class OpenTelemetryEventHandler:
         attributes: Optional[Dict[str, Any]] = None,
         parent_event_id: Optional[str] = None,
         kind: SpanKind = SpanKind.INTERNAL,
-        should_suppress_http_instrumentation: bool = False,
     ) -> None:
         parent_ctx = None
         if parent_event_id:
@@ -467,10 +458,7 @@ class OpenTelemetryEventHandler:
                 parent_ctx = trace.set_span_in_context(parent_entry.span)
 
         span = self._tracer.start_span(name, kind=kind, attributes=attributes, context=parent_ctx)
-        token = attach_otel_context(
-            trace.set_span_in_context(span),
-            should_suppress_http_instrumentation=should_suppress_http_instrumentation,
-        )
+        token = context.attach(trace.set_span_in_context(span))
         self._event_id_to_span.put(event_id, _SpanEntry(span=span, token=token))
 
     def _end_span(
