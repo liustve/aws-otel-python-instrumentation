@@ -1,27 +1,13 @@
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-from urllib.parse import urlparse
-
 from amazon.opentelemetry.distro.instrumentation.common.instrumentation_utils import DictWithLock
 from opentelemetry.sdk.trace import ReadableSpan, Span, SpanProcessor
 from opentelemetry.semconv._incubating.attributes.gen_ai_attributes import (
     GEN_AI_OPERATION_NAME,
     GenAiOperationNameValues,
 )
-from opentelemetry.semconv._incubating.attributes.http_attributes import HTTP_STATUS_CODE, HTTP_URL
-from opentelemetry.semconv.attributes.http_attributes import HTTP_RESPONSE_STATUS_CODE
-from opentelemetry.semconv.attributes.server_attributes import SERVER_ADDRESS, SERVER_PORT
-from opentelemetry.semconv.attributes.url_attributes import URL_FULL
 from opentelemetry.trace import SpanContext, SpanKind, TraceFlags, get_current_span
-
-_LLM_OPERATION_NAMES = (
-    GenAiOperationNameValues.CHAT.value,
-    GenAiOperationNameValues.TEXT_COMPLETION.value,
-    GenAiOperationNameValues.GENERATE_CONTENT.value,
-    GenAiOperationNameValues.EMBEDDINGS.value,
-)
-_DEFAULT_PORTS = {"http": 80, "https": 443}
 
 
 class GenAiNestedClientSpanProcessor(SpanProcessor):
@@ -41,7 +27,7 @@ class GenAiNestedClientSpanProcessor(SpanProcessor):
         parent_span = get_current_span(parent_context)
         if not isinstance(parent_span, Span):
             return
-        if (parent_span.attributes or {}).get(GEN_AI_OPERATION_NAME) not in _LLM_OPERATION_NAMES:
+        if not self._is_allowlisted_gen_ai_span(parent_span):
             return
 
         # A nested inference span may not receive its operation attribute until
@@ -95,11 +81,11 @@ class GenAiNestedClientSpanProcessor(SpanProcessor):
         # Only an allowlisted nested GenAI span is forwarded through the original
         # processor chain and can demote its parent.
         parent_span_id = span.parent.span_id if span.parent else None
-        if (span.attributes or {}).get(GEN_AI_OPERATION_NAME) in _LLM_OPERATION_NAMES and parent_span_id:
+        if self._is_allowlisted_gen_ai_span(span) and parent_span_id:
             self._has_gen_ai_client_child.put(parent_span_id, True)
 
         if (
-            (span.attributes or {}).get(GEN_AI_OPERATION_NAME) in _LLM_OPERATION_NAMES
+            self._is_allowlisted_gen_ai_span(span)
             and span.context
             and self._has_gen_ai_client_child.pop(span.context.span_id)
         ):
@@ -107,31 +93,23 @@ class GenAiNestedClientSpanProcessor(SpanProcessor):
 
     @staticmethod
     def _is_allowlisted_gen_ai_span(span) -> bool:
-        return (span.attributes or {}).get(GEN_AI_OPERATION_NAME) in _LLM_OPERATION_NAMES
+        return (span.attributes or {}).get(GEN_AI_OPERATION_NAME) in (
+            GenAiOperationNameValues.CHAT.value,
+            GenAiOperationNameValues.TEXT_COMPLETION.value,
+            GenAiOperationNameValues.GENERATE_CONTENT.value,
+            GenAiOperationNameValues.EMBEDDINGS.value,
+        )
 
     @staticmethod
     def _copy_suppressed_client_attributes(span: Span, parent_span: Span) -> None:
-        attributes = dict(span.attributes or {})
-        parent_span.set_attributes(attributes)
-
-        url = attributes.get(URL_FULL) or attributes.get(HTTP_URL)
-        if not url:
-            return
-
-        parent_span.set_attribute(URL_FULL, url)
-        parsed_url = urlparse(url)
-        if parsed_url.hostname:
-            parent_span.set_attribute(SERVER_ADDRESS, parsed_url.hostname)
-        try:
-            port = parsed_url.port or _DEFAULT_PORTS.get(parsed_url.scheme)
-        except ValueError:
-            port = None
-        if port:
-            parent_span.set_attribute(SERVER_PORT, port)
-
-        status_code = attributes.get(HTTP_RESPONSE_STATUS_CODE) or attributes.get(HTTP_STATUS_CODE)
-        if status_code is not None:
-            parent_span.set_attribute(HTTP_RESPONSE_STATUS_CODE, status_code)
+        parent_span.set_attributes(
+            {
+                key: value
+                for key, value in (span.attributes or {}).items()
+                if key == "error.type"
+                or key.startswith(("http.", "url.", "server.", "network.", "user_agent.", "net."))
+            }
+        )
 
     def shutdown(self) -> None:
         self._has_gen_ai_client_child.clear()
