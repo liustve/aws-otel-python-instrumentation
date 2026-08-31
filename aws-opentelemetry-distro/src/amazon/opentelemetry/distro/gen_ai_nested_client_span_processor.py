@@ -92,15 +92,17 @@ class GenAiNestedClientSpanProcessor(SpanProcessor):
         if span.kind != SpanKind.CLIENT:
             return
 
-        is_llm_span = (span.attributes or {}).get(GEN_AI_OPERATION_NAME) in _LLM_OPERATION_NAMES
-
         # Only an allowlisted nested GenAI span is forwarded through the original
         # processor chain and can demote its parent.
         parent_span_id = span.parent.span_id if span.parent else None
-        if is_llm_span and parent_span_id:
+        if (span.attributes or {}).get(GEN_AI_OPERATION_NAME) in _LLM_OPERATION_NAMES and parent_span_id:
             self._has_gen_ai_client_child.put(parent_span_id, True)
 
-        if is_llm_span and span.context and self._has_gen_ai_client_child.pop(span.context.span_id):
+        if (
+            (span.attributes or {}).get(GEN_AI_OPERATION_NAME) in _LLM_OPERATION_NAMES
+            and span.context
+            and self._has_gen_ai_client_child.pop(span.context.span_id)
+        ):
             span._kind = SpanKind.INTERNAL  # noqa: SLF001
 
     @staticmethod
