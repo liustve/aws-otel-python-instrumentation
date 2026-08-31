@@ -26,7 +26,7 @@ class GenAiNestedClientSpanProcessor(SpanProcessor):
         if not isinstance(parent_span, Span):
             return
 
-        if self._is_allowlisted_gen_ai_span(parent_span):
+        if self.is_gen_ai_inference_span(parent_span):
             gen_ai_parent_span = parent_span
         else:
             parent_span_id = getattr(parent_span, "_gen_ai_original_span_id", None)
@@ -63,7 +63,7 @@ class GenAiNestedClientSpanProcessor(SpanProcessor):
             return
 
         if span._span_processor is not self:  # noqa: SLF001
-            if self._is_allowlisted_gen_ai_span(span):
+            if self.is_gen_ai_inference_span(span):
                 parent_span._kind = SpanKind.INTERNAL  # noqa: SLF001
             return
 
@@ -77,7 +77,7 @@ class GenAiNestedClientSpanProcessor(SpanProcessor):
         self._copy_suppressed_client_attributes(span, parent_span)
 
     @staticmethod
-    def _is_allowlisted_gen_ai_span(span) -> bool:
+    def is_gen_ai_inference_span(span) -> bool:
         return (span.attributes or {}).get(GEN_AI_OPERATION_NAME) in (
             GenAiOperationNameValues.CHAT.value,
             GenAiOperationNameValues.TEXT_COMPLETION.value,
