@@ -60,7 +60,7 @@ class GenAiNestedClientSpanProcessor(SpanProcessor):
                 parent_span._kind = SpanKind.INTERNAL  # noqa: SLF001
             return
 
-        self._copy_suppressed_client_attributes(span, parent_span)
+        self._copy_http_client_attributes(span, parent_span)
 
     @staticmethod
     def is_gen_ai_inference_span(span) -> bool:
@@ -72,7 +72,7 @@ class GenAiNestedClientSpanProcessor(SpanProcessor):
         )
 
     @staticmethod
-    def _copy_suppressed_client_attributes(span: Span, parent_span: Span) -> None:
+    def _copy_http_client_attributes(span: Span, parent_span: Span) -> None:
         parent_span.set_attributes(
             {
                 key: value
