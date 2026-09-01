@@ -7,7 +7,7 @@ from opentelemetry.semconv._incubating.attributes.gen_ai_attributes import (
     GEN_AI_OPERATION_NAME,
     GenAiOperationNameValues,
 )
-from opentelemetry.trace import SpanContext, SpanKind, TraceFlags, get_current_span
+from opentelemetry.trace import SpanKind, get_current_span
 
 
 class GenAiNestedClientSpanProcessor(SpanProcessor):
@@ -60,13 +60,6 @@ class GenAiNestedClientSpanProcessor(SpanProcessor):
                 parent_span._kind = SpanKind.INTERNAL  # noqa: SLF001
             return
 
-        span._context = SpanContext(  # noqa: SLF001
-            trace_id=span.context.trace_id,
-            span_id=span.context.span_id,
-            is_remote=span.context.is_remote,
-            trace_flags=TraceFlags(span.context.trace_flags & ~TraceFlags.SAMPLED),
-            trace_state=span.context.trace_state,
-        )
         self._copy_suppressed_client_attributes(span, parent_span)
 
     @staticmethod
