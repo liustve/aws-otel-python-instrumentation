@@ -16,7 +16,7 @@ from openai import Omit
 from openai.types.responses import ResponseFunctionToolCall
 from pydantic import BaseModel
 
-from amazon.opentelemetry.distro.gen_ai_nested_client_span_processor import GenAiNestedClientSpanProcessor
+from amazon.opentelemetry.distro.gen_ai_nested_client_span_processor import GenAINestedClientSpanProcessor
 from amazon.opentelemetry.distro.instrumentation.openai_agents import OpenAIAgentsInstrumentor
 from amazon.opentelemetry.distro.instrumentation.openai_agents._gen_ai_context_capture import GenAIContextCapture
 from amazon.opentelemetry.distro.instrumentation.openai_agents._processor import (
@@ -203,7 +203,7 @@ class TestOpenAIAgentsTracingProcessor(unittest.TestCase):
     def setUp(self) -> None:
         self.exporter = InMemorySpanExporter()
         self.tracer_provider = TracerProvider()
-        self.tracer_provider.add_span_processor(GenAiNestedClientSpanProcessor())
+        self.tracer_provider.add_span_processor(GenAINestedClientSpanProcessor())
         self.tracer_provider.add_span_processor(SimpleSpanProcessor(self.exporter))
         tracer = self.tracer_provider.get_tracer(
             "amazon.opentelemetry.distro.instrumentation.openai_agents",

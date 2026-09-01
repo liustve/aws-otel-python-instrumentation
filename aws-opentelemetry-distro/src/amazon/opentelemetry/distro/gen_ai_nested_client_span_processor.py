@@ -10,7 +10,7 @@ from opentelemetry.semconv._incubating.attributes.gen_ai_attributes import (
 from opentelemetry.trace import SpanKind, get_current_span
 
 
-class GenAiNestedClientSpanProcessor(SpanProcessor):
+class GenAINestedClientSpanProcessor(SpanProcessor):
     # OTel GenAI semantic conventions require outgoing LLM calls to be CLIENT spans.
     # The same call can be instrumented by both the agentic framework and the
     # underlying LLM client SDK, producing nested CLIENT spans for a single request.

@@ -36,7 +36,7 @@ from llama_index.core.tools.types import ToolOutput
 from llama_index.llms.bedrock_converse import BedrockConverse as _BedrockConverse
 from llama_index.llms.openai import OpenAI as _OpenAI
 
-from amazon.opentelemetry.distro.gen_ai_nested_client_span_processor import GenAiNestedClientSpanProcessor
+from amazon.opentelemetry.distro.gen_ai_nested_client_span_processor import GenAINestedClientSpanProcessor
 from amazon.opentelemetry.distro.instrumentation.common.instrumentation_utils import (
     GEN_AI_WORKFLOW_NAME,
     OPERATION_INVOKE_WORKFLOW,
@@ -98,7 +98,7 @@ class TestLlamaIndexInstrumentor(unittest.TestCase):
     def setUp(self):
         self.tracer_provider = TracerProvider()
         self.span_exporter = InMemorySpanExporter()
-        self.tracer_provider.add_span_processor(GenAiNestedClientSpanProcessor())
+        self.tracer_provider.add_span_processor(GenAINestedClientSpanProcessor())
         self.tracer_provider.add_span_processor(SimpleSpanProcessor(self.span_exporter))
         self.instrumentor = LlamaIndexInstrumentor()
         self.instrumentor.instrument(tracer_provider=self.tracer_provider)

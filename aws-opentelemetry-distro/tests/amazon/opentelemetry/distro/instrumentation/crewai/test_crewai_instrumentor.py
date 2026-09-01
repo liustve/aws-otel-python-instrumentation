@@ -22,7 +22,7 @@ from crewai.events import crewai_event_bus
 from crewai.events.types.llm_events import LLMCallCompletedEvent, LLMCallStartedEvent, LLMCallType
 from crewai.tools import tool
 
-from amazon.opentelemetry.distro.gen_ai_nested_client_span_processor import GenAiNestedClientSpanProcessor
+from amazon.opentelemetry.distro.gen_ai_nested_client_span_processor import GenAINestedClientSpanProcessor
 from amazon.opentelemetry.distro.instrumentation.common.instrumentation_utils import (
     GEN_AI_WORKFLOW_NAME,
     OPERATION_INVOKE_WORKFLOW,
@@ -83,7 +83,7 @@ class TestCrewAIInstrumentor(TestCase):
         self._set_env("ANTHROPIC_API_KEY", "fake-key")
         self.tracer_provider = TracerProvider()
         self.span_exporter = InMemorySpanExporter()
-        self.tracer_provider.add_span_processor(GenAiNestedClientSpanProcessor())
+        self.tracer_provider.add_span_processor(GenAINestedClientSpanProcessor())
         self.tracer_provider.add_span_processor(SimpleSpanProcessor(self.span_exporter))
         self.instrumentor = CrewAIInstrumentor()
         self.instrumentor.instrument(tracer_provider=self.tracer_provider)
