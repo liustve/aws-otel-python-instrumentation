@@ -12,10 +12,20 @@ from opentelemetry.trace import SpanKind, get_current_span
 
 class GenAiNestedClientSpanProcessor(SpanProcessor):
     # OTel GenAI semantic conventions require outgoing LLM calls to be CLIENT spans.
-    # Allowlisted nested GenAI calls remain spans and demote the outer inference span
-    # to INTERNAL. HTTP CLIENT children are folded into the inference span.
+    # The same call can be instrumented by both the agentic framework and the
+    # underlying LLM client SDK, producing nested CLIENT spans for a single request.
+    # However, this only happens when the underlying LLM client call is also instrumented.
+    # This span processor does two things:
+    # 1. If the nested CLIENT span is a GenAI LLM call, it demotes the duplicated
+    #    top-level parent LLM call to INTERNAL.
+    # 2. If the nested CLIENT span is an arbitrary HTTP call, it folds the HTTP
+    #    span into the nearest GenAI inference span by propagating the GenAI
+    #    context, copying the HTTP attributes, and preventing the HTTP span from
+    #    reaching other processors.
+    # This ensures metrics derived from these LLM calls remain accurate.
 
     def __init__(self):
+        # Maps each nested CLIENT span to its nearest writable GenAI inference parent.
         self._span_to_nearest_gen_ai_parent: DictWithLock = DictWithLock()
 
     def on_start(self, span: Span, parent_context=None) -> None:
@@ -39,8 +49,9 @@ class GenAiNestedClientSpanProcessor(SpanProcessor):
             return
 
         span._context = gen_ai_parent_span.get_span_context()  # noqa: SLF001
-        # sampled=False would route this span to BatchUnsampledSpanProcessor.
-        # Redirect Span.end here so no registered exporter or metrics processor sees it.
+        # Replace the original processor chain so only this processor receives
+        # the _on_ending and on_end callbacks. No other processor can observe
+        # or export this span.
         span._span_processor = self  # noqa: SLF001
 
     def _on_ending(self, span: Span) -> None:
