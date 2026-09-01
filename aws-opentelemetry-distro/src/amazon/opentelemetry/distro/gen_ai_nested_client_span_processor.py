@@ -57,10 +57,10 @@ class GenAiNestedClientSpanProcessor(SpanProcessor):
 
     @staticmethod
     def is_gen_ai_inference_span(span) -> bool:
-        return (span.attributes or {}).get(GEN_AI_OPERATION_NAME) in (
+        return span.kind == SpanKind.CLIENT and (span.attributes or {}).get(GEN_AI_OPERATION_NAME) in (
             GenAiOperationNameValues.CHAT.value,
-            GenAiOperationNameValues.TEXT_COMPLETION.value,
             GenAiOperationNameValues.GENERATE_CONTENT.value,
+            GenAiOperationNameValues.TEXT_COMPLETION.value,
             GenAiOperationNameValues.EMBEDDINGS.value,
         )
 
