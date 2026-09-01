@@ -35,14 +35,7 @@ class GenAiNestedClientSpanProcessor(SpanProcessor):
 
         self._span_to_nearest_gen_ai_parent.put(span, gen_ai_parent_span)
 
-        if span.instrumentation_scope.name not in (
-            "opentelemetry.instrumentation.aiohttp_client",
-            "opentelemetry.instrumentation.httpx",
-            "opentelemetry.instrumentation.requests",
-            "opentelemetry.instrumentation.tornado",
-            "opentelemetry.instrumentation.urllib",
-            "opentelemetry.instrumentation.urllib3",
-        ):
+        if not self.is_http_client_span(span):
             return
 
         span._context = gen_ai_parent_span.get_span_context()  # noqa: SLF001
@@ -55,7 +48,7 @@ class GenAiNestedClientSpanProcessor(SpanProcessor):
         if parent_span is None:
             return
 
-        if span._span_processor is not self:  # noqa: SLF001
+        if not self.is_http_client_span(span):
             if self.is_gen_ai_inference_span(span):
                 parent_span._kind = SpanKind.INTERNAL  # noqa: SLF001
             return
@@ -69,6 +62,17 @@ class GenAiNestedClientSpanProcessor(SpanProcessor):
             GenAiOperationNameValues.TEXT_COMPLETION.value,
             GenAiOperationNameValues.GENERATE_CONTENT.value,
             GenAiOperationNameValues.EMBEDDINGS.value,
+        )
+
+    @staticmethod
+    def is_http_client_span(span) -> bool:
+        return span.kind == SpanKind.CLIENT and span.instrumentation_scope.name in (
+            "opentelemetry.instrumentation.aiohttp_client",
+            "opentelemetry.instrumentation.httpx",
+            "opentelemetry.instrumentation.requests",
+            "opentelemetry.instrumentation.tornado",
+            "opentelemetry.instrumentation.urllib",
+            "opentelemetry.instrumentation.urllib3",
         )
 
     @staticmethod
