@@ -142,10 +142,10 @@ class TestGenAiNestedClientSpanProcessor(unittest.TestCase):
 
     def test_shutdown_clears_state(self):
         processor = GenAiNestedClientSpanProcessor()
-        processor._has_gen_ai_client_child.put(123, True)
-        self.assertEqual(len(processor._has_gen_ai_client_child), 1)
+        processor._span_to_nearest_gen_ai_parent.put(123, True)
+        self.assertEqual(len(processor._span_to_nearest_gen_ai_parent), 1)
         processor.shutdown()
-        self.assertEqual(len(processor._has_gen_ai_client_child), 0)
+        self.assertEqual(len(processor._span_to_nearest_gen_ai_parent), 0)
 
     def test_force_flush_returns_true(self):
         processor = GenAiNestedClientSpanProcessor()

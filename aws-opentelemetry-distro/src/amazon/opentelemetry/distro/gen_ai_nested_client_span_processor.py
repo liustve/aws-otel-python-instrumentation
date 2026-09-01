@@ -16,7 +16,7 @@ class GenAiNestedClientSpanProcessor(SpanProcessor):
     # to INTERNAL. HTTP CLIENT children are folded into the inference span.
 
     def __init__(self):
-        self._has_gen_ai_client_child: DictWithLock = DictWithLock()
+        self._span_to_nearest_gen_ai_parent: DictWithLock = DictWithLock()
 
     def on_start(self, span: Span, parent_context=None) -> None:
         if span.kind != SpanKind.CLIENT:
@@ -29,19 +29,17 @@ class GenAiNestedClientSpanProcessor(SpanProcessor):
         if self.is_gen_ai_inference_span(parent_span):
             gen_ai_parent_span = parent_span
         else:
-            parent_span_id = getattr(parent_span, "_gen_ai_original_span_id", None)
-            gen_ai_parent_span = self._has_gen_ai_client_child.get(parent_span_id)
+            gen_ai_parent_span = self._span_to_nearest_gen_ai_parent.get(parent_span)
             if gen_ai_parent_span is None:
                 return
 
-        child_span_id = span.context.span_id
-        span._gen_ai_original_span_id = child_span_id  # noqa: SLF001
-        self._has_gen_ai_client_child.put(child_span_id, gen_ai_parent_span)
+        self._span_to_nearest_gen_ai_parent.put(span, gen_ai_parent_span)
 
         if span.instrumentation_scope.name not in (
             "opentelemetry.instrumentation.aiohttp_client",
             "opentelemetry.instrumentation.httpx",
             "opentelemetry.instrumentation.requests",
+            "opentelemetry.instrumentation.tornado",
             "opentelemetry.instrumentation.urllib",
             "opentelemetry.instrumentation.urllib3",
         ):
@@ -53,12 +51,7 @@ class GenAiNestedClientSpanProcessor(SpanProcessor):
         span._span_processor = self  # noqa: SLF001
 
     def _on_ending(self, span: Span) -> None:
-        child_span_id = getattr(span, "_gen_ai_original_span_id", None)
-        if child_span_id is None:
-            return
-
-        del span._gen_ai_original_span_id  # noqa: SLF001
-        parent_span = self._has_gen_ai_client_child.pop(child_span_id)
+        parent_span = self._span_to_nearest_gen_ai_parent.pop(span)
         if parent_span is None:
             return
 
@@ -97,7 +90,7 @@ class GenAiNestedClientSpanProcessor(SpanProcessor):
         )
 
     def shutdown(self) -> None:
-        self._has_gen_ai_client_child.clear()
+        self._span_to_nearest_gen_ai_parent.clear()
 
     def force_flush(self, timeout_millis: int = 30000) -> bool:  # pylint: disable=no-self-use
         return True
