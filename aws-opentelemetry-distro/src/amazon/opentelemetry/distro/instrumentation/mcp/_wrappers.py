@@ -286,6 +286,12 @@ class ClientWrapper(McpWrapper):
                 else:
                     async with wrapped(*args, **kwargs) as streams:
                         yield streams
+            except Exception as exc:
+                try:
+                    self._set_error_attrs(session_span, exc)
+                except Exception:  # pylint: disable=broad-exception-caught
+                    _LOG.debug("Failed to record MCP session error", exc_info=True)
+                raise
             finally:
                 session_span.end()
                 context.detach(token)
