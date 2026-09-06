@@ -536,13 +536,15 @@ class OpenTelemetryEventHandler:
     ) -> None:
         parent_entry = self._event_id_to_span.get(parent_event_id) if parent_event_id else None
         if parent_entry:
-            # Continue the trace under the parent span recorded for this CrewAI event.
+            # continue the trace under the parent span recorded for this CrewAI event
             parent_ctx = trace.set_span_in_context(parent_entry.span)
         elif root_event_id is not None or parent_event_id is None:
-            # Root events and events without a parent inherit the caller's active trace.
+            # a CrewAI root may run inside an incoming request trace, preserving that
+            # caller context when CrewAI does not provide a parent span to continue
             parent_ctx = context.get_current()
         else:
-            # An unresolved parent must not attach the span to an unrelated active trace.
+            # the parent ID is missing from our span map, so do not
+            # use the active context because it may belong to another concurrent crew
             parent_ctx = context.Context()
 
         if root_event_id is None:
