@@ -83,6 +83,9 @@ class _SpanEntry:
     span: trace.Span
     token: Any
     root_event_id: str
+    # older CrewAI versions only expose cumulative token usage, so retain the
+    # starting counts to calculate this LLM call's usage when the span ends
+    initial_token_usage: Tuple[int, int] = (0, 0)
 
 
 class _EventBusEmitWrapper:
@@ -135,8 +138,8 @@ class OpenTelemetryEventHandler:
         # a map of every event's id to its span. If the event does not
         # create a span, then it's mapped to the span created by its nearest ancestor event
         self._event_id_to_span = DictWithLock()
-        self._event_id_to_token_usage = DictWithLock()
-        self._pending_llm_calls = DictWithLock()
+        # maps each task or agent scope to the start event ID of its unfinished LLM call
+        self._pending_llm_call_event_ids = DictWithLock()
         self._event_type_handlers: Dict[type, Any] = {
             CrewKickoffStartedEvent: self._on_crew_start,
             CrewKickoffCompletedEvent: self._on_crew_completed,
@@ -347,7 +350,6 @@ class OpenTelemetryEventHandler:
         )
 
         usage = source.get_token_usage_summary()
-        self._event_id_to_token_usage.put(event.event_id, (usage.prompt_tokens, usage.completion_tokens))
 
         messages = event.messages
         if messages:
@@ -364,8 +366,15 @@ class OpenTelemetryEventHandler:
                 )
 
         parent_event_id = self._get_parent_event_id(event)
-        self._start_span(span_name, event.event_id, attributes, parent_event_id, kind=SpanKind.CLIENT)
-        self._pending_llm_calls.put(self._get_event_scope_key(event), event.event_id)
+        self._start_span(
+            span_name,
+            event.event_id,
+            attributes,
+            parent_event_id,
+            kind=SpanKind.CLIENT,
+            initial_token_usage=(usage.prompt_tokens, usage.completion_tokens),
+        )
+        self._pending_llm_call_event_ids.put(self._get_event_scope_key(event), event.event_id)
 
     def _on_llm_completed(  # pylint: disable=too-many-locals,too-many-branches
         self, source: "BaseLLM", event: "LLMCallCompletedEvent"
@@ -404,13 +413,14 @@ class OpenTelemetryEventHandler:
             attrs[GEN_AI_RESPONSE_MODEL] = model_name
 
         started_event_id = first_not_none(
-            self._pending_llm_calls.pop(self._get_event_scope_key(event)),
+            self._pending_llm_call_event_ids.pop(self._get_event_scope_key(event)),
             event.started_event_id,
         )
 
         # crewai >=1.13.0 reports per-call usage on the completed event; older versions only expose a
         # cumulative summary, so diff it against the snapshot taken when the call started.
-        prev_prompt_tokens, prev_completion_tokens = self._event_id_to_token_usage.pop(started_event_id) or (0, 0)
+        span_entry = self._event_id_to_span.get(started_event_id)
+        prev_prompt_tokens, prev_completion_tokens = span_entry.initial_token_usage if span_entry else (0, 0)
         event_usage = getattr(event, "usage", None)
         cache_read_input_tokens = 0
         cache_creation_input_tokens = 0
@@ -450,10 +460,9 @@ class OpenTelemetryEventHandler:
 
     def _on_llm_failed(self, source: Any, event: "LLMCallFailedEvent") -> None:
         started_event_id = first_not_none(
-            self._pending_llm_calls.pop(self._get_event_scope_key(event)),
+            self._pending_llm_call_event_ids.pop(self._get_event_scope_key(event)),
             event.started_event_id,
         )
-        self._event_id_to_token_usage.pop(started_event_id)
         self._end_span(started_event_id, error=getattr(event, "error", None))
 
     def _maybe_end_pending_llm_span_for_tool_call(self, source: Any, event: "ToolUsageStartedEvent") -> None:
@@ -465,7 +474,7 @@ class OpenTelemetryEventHandler:
         if not llm:
             return
         scope_key = self._get_event_scope_key(event)
-        pending_event_id = self._pending_llm_calls.pop(scope_key)
+        pending_event_id = self._pending_llm_call_event_ids.pop(scope_key)
         if not pending_event_id:
             return
 
@@ -488,7 +497,8 @@ class OpenTelemetryEventHandler:
         if model_name:
             attrs[GEN_AI_RESPONSE_MODEL] = model_name
 
-        previous = self._event_id_to_token_usage.pop(pending_event_id) or (0, 0)
+        span_entry = self._event_id_to_span.get(pending_event_id)
+        previous = span_entry.initial_token_usage if span_entry else (0, 0)
         usage: "UsageMetrics" = llm.get_token_usage_summary()
         if (input_tokens := usage.prompt_tokens - previous[0]) > 0:
             attrs[GEN_AI_USAGE_INPUT_TOKENS] = input_tokens
@@ -533,6 +543,7 @@ class OpenTelemetryEventHandler:
         kind: SpanKind = SpanKind.INTERNAL,
         *,
         root_event_id: Optional[str] = None,
+        initial_token_usage: Tuple[int, int] = (0, 0),
     ) -> None:
         parent_entry = self._event_id_to_span.get(parent_event_id) if parent_event_id else None
         if parent_entry:
@@ -561,6 +572,7 @@ class OpenTelemetryEventHandler:
                 span=span,
                 token=token,
                 root_event_id=root_event_id,
+                initial_token_usage=initial_token_usage,
             ),
         )
 
@@ -594,9 +606,7 @@ class OpenTelemetryEventHandler:
             lambda _, span_entry: span_entry.root_event_id == root_event_id
         )
         removed_event_ids = {event_id for event_id, _entry in removed_span_entries}
-        for event_id in removed_event_ids:
-            self._event_id_to_token_usage.pop(event_id)
-        self._pending_llm_calls.pop_items_if_matches(lambda _, event_id: event_id in removed_event_ids)
+        self._pending_llm_call_event_ids.pop_items_if_matches(lambda _, event_id: event_id in removed_event_ids)
         for _, entry in reversed(removed_span_entries):
             if entry.span.is_recording():
                 if error:

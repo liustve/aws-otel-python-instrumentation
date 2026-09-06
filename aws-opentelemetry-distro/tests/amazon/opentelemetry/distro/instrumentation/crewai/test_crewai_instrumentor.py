@@ -1550,14 +1550,9 @@ class TestCrewAIInstrumentor(TestCase):
             len(self.instrumentor._handler._event_id_to_span._data), 0, "Leaked entries in event_id_to_span map"
         )
         self.assertEqual(
-            len(self.instrumentor._handler._event_id_to_token_usage._data),
+            len(self.instrumentor._handler._pending_llm_call_event_ids._data),
             0,
-            "Leaked entries in event_id_to_token_usage map",
-        )
-        self.assertEqual(
-            len(self.instrumentor._handler._pending_llm_calls._data),
-            0,
-            "Leaked entries in pending_llm_calls map",
+            "Leaked entries in pending_llm_call_event_ids map",
         )
 
     def _find_span(self, name_contains: str) -> Optional[ReadableSpan]:
