@@ -476,8 +476,7 @@ class OpenTelemetryEventHandler:
         llm = source if hasattr(source, "get_token_usage_summary") else getattr(agent, "llm", None)
         if not llm:
             return
-        task_or_agent_id = self._get_task_or_agent_id(event)
-        started_event_id = self._task_or_agent_id_to_started_llm_event_id.pop(task_or_agent_id)
+        started_event_id = self._task_or_agent_id_to_started_llm_event_id.pop(self._get_task_or_agent_id(event))
         if not started_event_id:
             return
 
