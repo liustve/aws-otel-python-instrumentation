@@ -12,7 +12,7 @@ If your change does not need a CHANGELOG entry, add the "skip changelog" label t
 
 ## Unreleased
 
-- fix(crewai): isolate concurrent span cleanup
+- fix(crewai): correctly complete and isolate spans across tool calls and concurrent crew runs
   ([#881](https://github.com/aws-observability/aws-otel-python-instrumentation/pull/881))
 - Only demote duplicate nested GenAI client spans
   ([#872](https://github.com/aws-observability/aws-otel-python-instrumentation/pull/872))

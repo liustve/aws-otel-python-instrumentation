@@ -138,8 +138,8 @@ class OpenTelemetryEventHandler:
         # a map of every event's id to its span. If the event does not
         # create a span, then it's mapped to the span created by its nearest ancestor event
         self._event_id_to_span = DictWithLock()
-        # maps each task or agent scope to the start event ID of its unfinished LLM call
-        self._pending_llm_call_event_ids = DictWithLock()
+        # maps each task or agent ID to the started event ID of its unfinished LLM call
+        self._task_or_agent_id_to_started_llm_event_id = DictWithLock()
         self._event_type_handlers: Dict[type, Any] = {
             CrewKickoffStartedEvent: self._on_crew_start,
             CrewKickoffCompletedEvent: self._on_crew_completed,
@@ -259,7 +259,7 @@ class OpenTelemetryEventHandler:
 
         self._start_span(span_name, event.event_id, attributes, self._get_parent_event_id(event))
         if agent_entry := self._event_id_to_span.get(event.event_id):
-            self._event_id_to_span.put(self._get_event_scope_key(event), agent_entry)
+            self._event_id_to_span.put(self._get_task_or_agent_id(event), agent_entry)
 
     def _on_agent_completed(
         self, source: "BaseAgent", event: "AgentExecutionCompletedEvent"  # pylint: disable=unused-argument
@@ -270,15 +270,18 @@ class OpenTelemetryEventHandler:
             attrs[GEN_AI_OUTPUT_MESSAGES] = serialize_to_json_string(
                 [{"role": "assistant", "parts": content_to_parts(output), "finish_reason": "stop"}]
             )
-        scope_key = self._get_event_scope_key(event)
-        self._end_span(scope_key if self._event_id_to_span.get(scope_key) else event.started_event_id, attrs)
+        task_or_agent_id = self._get_task_or_agent_id(event)
+        self._end_span(
+            task_or_agent_id if self._event_id_to_span.get(task_or_agent_id) else event.started_event_id,
+            attrs,
+        )
 
     def _on_agent_failed(
         self, source: "BaseAgent", event: "AgentExecutionErrorEvent"
     ) -> None:  # pylint: disable=unused-argument
-        scope_key = self._get_event_scope_key(event)
+        task_or_agent_id = self._get_task_or_agent_id(event)
         self._end_span(
-            scope_key if self._event_id_to_span.get(scope_key) else event.started_event_id,
+            task_or_agent_id if self._event_id_to_span.get(task_or_agent_id) else event.started_event_id,
             error=getattr(event, "error", None),
         )
 
@@ -374,7 +377,7 @@ class OpenTelemetryEventHandler:
             kind=SpanKind.CLIENT,
             initial_token_usage=(usage.prompt_tokens, usage.completion_tokens),
         )
-        self._pending_llm_call_event_ids.put(self._get_event_scope_key(event), event.event_id)
+        self._task_or_agent_id_to_started_llm_event_id.put(self._get_task_or_agent_id(event), event.event_id)
 
     def _on_llm_completed(  # pylint: disable=too-many-locals,too-many-branches
         self, source: "BaseLLM", event: "LLMCallCompletedEvent"
@@ -413,7 +416,7 @@ class OpenTelemetryEventHandler:
             attrs[GEN_AI_RESPONSE_MODEL] = model_name
 
         started_event_id = first_not_none(
-            self._pending_llm_call_event_ids.pop(self._get_event_scope_key(event)),
+            self._task_or_agent_id_to_started_llm_event_id.pop(self._get_task_or_agent_id(event)),
             event.started_event_id,
         )
 
@@ -460,7 +463,7 @@ class OpenTelemetryEventHandler:
 
     def _on_llm_failed(self, source: Any, event: "LLMCallFailedEvent") -> None:
         started_event_id = first_not_none(
-            self._pending_llm_call_event_ids.pop(self._get_event_scope_key(event)),
+            self._task_or_agent_id_to_started_llm_event_id.pop(self._get_task_or_agent_id(event)),
             event.started_event_id,
         )
         self._end_span(started_event_id, error=getattr(event, "error", None))
@@ -473,9 +476,9 @@ class OpenTelemetryEventHandler:
         llm = source if hasattr(source, "get_token_usage_summary") else getattr(agent, "llm", None)
         if not llm:
             return
-        scope_key = self._get_event_scope_key(event)
-        pending_event_id = self._pending_llm_call_event_ids.pop(scope_key)
-        if not pending_event_id:
+        task_or_agent_id = self._get_task_or_agent_id(event)
+        started_event_id = self._task_or_agent_id_to_started_llm_event_id.pop(task_or_agent_id)
+        if not started_event_id:
             return
 
         parts = []
@@ -497,7 +500,7 @@ class OpenTelemetryEventHandler:
         if model_name:
             attrs[GEN_AI_RESPONSE_MODEL] = model_name
 
-        span_entry = self._event_id_to_span.get(pending_event_id)
+        span_entry = self._event_id_to_span.get(started_event_id)
         previous = span_entry.initial_token_usage if span_entry else (0, 0)
         usage: "UsageMetrics" = llm.get_token_usage_summary()
         if (input_tokens := usage.prompt_tokens - previous[0]) > 0:
@@ -505,17 +508,19 @@ class OpenTelemetryEventHandler:
         if (output_tokens := usage.completion_tokens - previous[1]) > 0:
             attrs[GEN_AI_USAGE_OUTPUT_TOKENS] = output_tokens
 
-        self._end_span(pending_event_id, attrs)
+        self._end_span(started_event_id, attrs)
 
     def _get_parent_event_id(self, event: Any) -> Optional[str]:
         parent_event_id = getattr(event, "parent_event_id", None)
         if parent_event_id and self._event_id_to_span.get(parent_event_id):
             return parent_event_id
-        scope_key = self._get_event_scope_key(event)
-        return scope_key if scope_key and self._event_id_to_span.get(scope_key) else parent_event_id
+        task_or_agent_id = self._get_task_or_agent_id(event)
+        return (
+            task_or_agent_id if task_or_agent_id and self._event_id_to_span.get(task_or_agent_id) else parent_event_id
+        )
 
     @staticmethod
-    def _get_event_scope_key(event: Any) -> str:
+    def _get_task_or_agent_id(event: Any) -> str:
         task_id = first_not_none(
             getattr(getattr(event, "task", None), "id", None),
             getattr(event, "task_id", None),
@@ -606,7 +611,9 @@ class OpenTelemetryEventHandler:
             lambda _, span_entry: span_entry.root_event_id == root_event_id
         )
         removed_event_ids = {event_id for event_id, _entry in removed_span_entries}
-        self._pending_llm_call_event_ids.pop_items_if_matches(lambda _, event_id: event_id in removed_event_ids)
+        self._task_or_agent_id_to_started_llm_event_id.pop_items_if_matches(
+            lambda _, event_id: event_id in removed_event_ids
+        )
         for _, entry in reversed(removed_span_entries):
             if entry.span.is_recording():
                 if error:
