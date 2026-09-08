@@ -48,14 +48,6 @@ class AttributeRedactingSpanProcessor(SpanProcessor):
                 if attribute.strip()
             ]
         )
-
-    @property
-    def attributes_to_redact(self) -> list[str]:
-        return self._attributes_to_redact
-
-    @attributes_to_redact.setter
-    def attributes_to_redact(self, attributes: Collection[str]) -> None:
-        self._attributes_to_redact = list(attributes)
         self._compiled_patterns = tuple(
             re.compile(re.escape(attribute).replace(r"\*", ".*")) for attribute in self.attributes_to_redact
         )

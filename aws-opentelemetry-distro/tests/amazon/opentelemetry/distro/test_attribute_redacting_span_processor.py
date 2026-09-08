@@ -28,20 +28,6 @@ class RedactionTestData:
 
 
 class TestAttributeRedactingSpanProcessor(TestCase):
-    def setUp(self) -> None:
-        self.exporter = InMemorySpanExporter()
-        self.provider = TracerProvider()
-        with patch.dict(os.environ, {ENV_ADOT_REDACT_SPAN_ATTRIBUTES: ""}):
-            self.processor = AttributeRedactingSpanProcessor()
-        self.provider.add_span_processor(self.processor)
-        self.provider.add_span_processor(BatchSpanProcessor(self.exporter))
-        self.tracer = self.provider.get_tracer(__name__)
-
-    def tearDown(self) -> None:
-        self.provider.force_flush()
-        self.provider.shutdown()
-        self.exporter.clear()
-
     def test_should_redact_all_attributes_that_match_configured_patterns(self):
         test_cases = (
             RedactionTestData(
@@ -173,26 +159,8 @@ class TestAttributeRedactingSpanProcessor(TestCase):
         )
 
         for test_data in test_cases:
-            with self.subTest(name=test_data.name), patch.dict(
-                os.environ,
-                {ENV_ADOT_REDACT_SPAN_ATTRIBUTES: test_data.environment_value},
-            ):
-                self.processor.attributes_to_redact = AttributeRedactingSpanProcessor().attributes_to_redact
-                with self.tracer.start_as_current_span("test", attributes=test_data.span_attributes) as span:
-                    span.add_event("test.event", attributes=test_data.event_attributes)
-
-                try:
-                    self.assertTrue(self.provider.force_flush())
-                    finished_spans = self.exporter.get_finished_spans()
-                    self.assertEqual(len(finished_spans), 1)
-                    exported_span = finished_spans[0]
-                    self.assertEqual(dict(exported_span.attributes), test_data.expected_span_attributes)
-                    self.assertEqual(
-                        {event.name: dict(event.attributes) for event in exported_span.events},
-                        {"test.event": test_data.expected_event_attributes},
-                    )
-                finally:
-                    self.exporter.clear()
+            with self.subTest(name=test_data.name):
+                self._assert_redaction(test_data)
 
     def test_should_not_redact_attributes_for_invalid_configured_patterns(self):
         test_cases = (
@@ -291,23 +259,32 @@ class TestAttributeRedactingSpanProcessor(TestCase):
         )
 
         for test_data in test_cases:
-            with self.subTest(name=test_data.name), patch.dict(
-                os.environ,
-                {ENV_ADOT_REDACT_SPAN_ATTRIBUTES: test_data.environment_value},
-            ):
-                self.processor.attributes_to_redact = AttributeRedactingSpanProcessor().attributes_to_redact
-                with self.tracer.start_as_current_span("test", attributes=test_data.span_attributes) as span:
-                    span.add_event("test.event", attributes=test_data.event_attributes)
+            with self.subTest(name=test_data.name):
+                self._assert_redaction(test_data)
 
-                try:
-                    self.assertTrue(self.provider.force_flush())
-                    finished_spans = self.exporter.get_finished_spans()
-                    self.assertEqual(len(finished_spans), 1)
-                    exported_span = finished_spans[0]
-                    self.assertEqual(dict(exported_span.attributes), test_data.expected_span_attributes)
-                    self.assertEqual(
-                        {event.name: dict(event.attributes) for event in exported_span.events},
-                        {"test.event": test_data.expected_event_attributes},
-                    )
-                finally:
-                    self.exporter.clear()
+    def _assert_redaction(self, test_data: RedactionTestData) -> None:
+        exporter = InMemorySpanExporter()
+        provider = TracerProvider()
+        with patch.dict(
+            os.environ,
+            {ENV_ADOT_REDACT_SPAN_ATTRIBUTES: test_data.environment_value},
+        ):
+            provider.add_span_processor(AttributeRedactingSpanProcessor())
+        provider.add_span_processor(BatchSpanProcessor(exporter))
+        tracer = provider.get_tracer(__name__)
+
+        try:
+            with tracer.start_as_current_span("test", attributes=test_data.span_attributes) as span:
+                span.add_event("test.event", attributes=test_data.event_attributes)
+
+            self.assertTrue(provider.force_flush())
+            finished_spans = exporter.get_finished_spans()
+            self.assertEqual(len(finished_spans), 1)
+            exported_span = finished_spans[0]
+            self.assertEqual(dict(exported_span.attributes), test_data.expected_span_attributes)
+            self.assertEqual(
+                {event.name: dict(event.attributes) for event in exported_span.events},
+                {"test.event": test_data.expected_event_attributes},
+            )
+        finally:
+            provider.shutdown()
