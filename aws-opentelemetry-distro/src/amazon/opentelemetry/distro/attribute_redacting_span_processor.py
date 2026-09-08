@@ -49,6 +49,17 @@ class AttributeRedactingSpanProcessor(SpanProcessor):
             ]
         )
 
+    @property
+    def attributes_to_redact(self) -> list[str]:
+        return self._attributes_to_redact
+
+    @attributes_to_redact.setter
+    def attributes_to_redact(self, attributes: Collection[str]) -> None:
+        self._attributes_to_redact = list(attributes)
+        self._compiled_patterns = tuple(
+            re.compile(re.escape(attribute).replace(r"\*", ".*")) for attribute in self.attributes_to_redact
+        )
+
     # pylint: disable=no-self-use
     @override
     def on_start(self, span: Span, parent_context: Optional[Context] = None) -> None:
@@ -69,6 +80,8 @@ class AttributeRedactingSpanProcessor(SpanProcessor):
             return
 
         if isinstance(attributes, BoundedAttributes):
+            # Completed spans and events expose immutable BoundedAttributes, so
+            # their public setter raises TypeError. Update existing values under its lock.
             with attributes._lock:  # noqa: SLF001
                 for key in attributes._dict:  # noqa: SLF001
                     if self._should_redact(key):
@@ -79,10 +92,7 @@ class AttributeRedactingSpanProcessor(SpanProcessor):
                     attributes[key] = REDACTED_VALUE
 
     def _should_redact(self, attribute_name: str) -> bool:
-        return any(
-            re.fullmatch(re.escape(attribute).replace(r"\*", ".*"), attribute_name)
-            for attribute in self.attributes_to_redact
-        )
+        return any(pattern.fullmatch(attribute_name) for pattern in self._compiled_patterns)
 
     # pylint: disable=no-self-use
     @override
