@@ -344,6 +344,8 @@ def _init_tracing(
     if is_agent_observability_enabled():
         trace_provider.add_span_processor(GenAINestedClientSpanProcessor())
 
+    # This processor modifies attributes in on_end, so it must run before batch
+    # processors to ensure exporters observe the redacted values.
     trace_provider.add_span_processor(AttributeRedactingSpanProcessor())
 
     for _, exporter_class in exporters.items():
