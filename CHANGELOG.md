@@ -12,7 +12,8 @@ If your change does not need a CHANGELOG entry, add the "skip changelog" label t
 
 ## Unreleased
 
-- feat: add configurable span and span event attribute redaction via ADOT_REDACT_SPAN_ATTRIBUTES
+- feat: add separately configurable span and span event attribute redaction via
+  ADOT_REDACT_SPAN_ATTRIBUTES and ADOT_REDACT_SPAN_EVENT_ATTRIBUTES
   ([#886](https://github.com/aws-observability/aws-otel-python-instrumentation/pull/886))
 - fix: stop logging a noisy `Invalid key/value pair (xrsr, None) found.` warning on span creation when no
   X-Ray sampling rule hash is available

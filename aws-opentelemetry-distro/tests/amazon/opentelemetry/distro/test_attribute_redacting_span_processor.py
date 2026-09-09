@@ -3,10 +3,12 @@
 
 import os
 from dataclasses import dataclass
+from typing import Optional
 from unittest import TestCase
 from unittest.mock import patch
 
 from amazon.opentelemetry.distro.attribute_redacting_span_processor import (
+    ENV_ADOT_REDACT_SPAN_EVENT_ATTRIBUTES,
     ENV_ADOT_REDACT_SPAN_ATTRIBUTES,
     REDACTED_VALUE,
     AttributeRedactingSpanProcessor,
@@ -25,19 +27,21 @@ class RedactionTestData:
     event_attributes: dict[str, AttributeValue]
     expected_span_attributes: dict[str, AttributeValue]
     expected_event_attributes: dict[str, AttributeValue]
+    span_event_environment_value: Optional[str] = None
 
 
 class TestAttributeRedactingSpanProcessor(TestCase):
     def test_should_redact_all_attributes_that_match_configured_patterns(self):
         test_cases = (
             RedactionTestData(
-                name="configured attribute names",
+                name="independent configured attribute names",
                 environment_value=" user.email, request.body, db.statement, gen_ai.prompt, user.email ",
                 span_attributes={
                     "user.email": "user@example.com",
                     "request.body": '{"password":"secret"}',
                     "db.statement": "SELECT * FROM users",
                     "gen_ai.prompt": "private prompt",
+                    "event.secret": "span value",
                     "http.request.method": "POST",
                     "server.address": "example.com",
                 },
@@ -45,6 +49,7 @@ class TestAttributeRedactingSpanProcessor(TestCase):
                     "user.email": "event-user@example.com",
                     "db.statement": "UPDATE users SET password = 'secret'",
                     "gen_ai.prompt": "private event prompt",
+                    "event.secret": "event value",
                     "event.safe": "keep me",
                 },
                 expected_span_attributes={
@@ -52,15 +57,18 @@ class TestAttributeRedactingSpanProcessor(TestCase):
                     "request.body": REDACTED_VALUE,
                     "db.statement": REDACTED_VALUE,
                     "gen_ai.prompt": REDACTED_VALUE,
+                    "event.secret": "span value",
                     "http.request.method": "POST",
                     "server.address": "example.com",
                 },
                 expected_event_attributes={
-                    "user.email": REDACTED_VALUE,
+                    "user.email": "event-user@example.com",
                     "db.statement": REDACTED_VALUE,
-                    "gen_ai.prompt": REDACTED_VALUE,
+                    "gen_ai.prompt": "private event prompt",
+                    "event.secret": REDACTED_VALUE,
                     "event.safe": "keep me",
                 },
+                span_event_environment_value=" db.statement, event.secret ",
             ),
             RedactionTestData(
                 name="wildcard only",
@@ -265,9 +273,17 @@ class TestAttributeRedactingSpanProcessor(TestCase):
     def _assert_redaction(self, test_data: RedactionTestData) -> None:
         exporter = InMemorySpanExporter()
         provider = TracerProvider()
+        span_event_environment_value = (
+            test_data.span_event_environment_value
+            if test_data.span_event_environment_value is not None
+            else test_data.environment_value
+        )
         with patch.dict(
             os.environ,
-            {ENV_ADOT_REDACT_SPAN_ATTRIBUTES: test_data.environment_value},
+            {
+                ENV_ADOT_REDACT_SPAN_ATTRIBUTES: test_data.environment_value,
+                ENV_ADOT_REDACT_SPAN_EVENT_ATTRIBUTES: span_event_environment_value,
+            },
         ):
             provider.add_span_processor(AttributeRedactingSpanProcessor())
         provider.add_span_processor(BatchSpanProcessor(exporter))
