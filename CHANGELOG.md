@@ -12,7 +12,7 @@ If your change does not need a CHANGELOG entry, add the "skip changelog" label t
 
 ## Unreleased
 
-- feat: add configurable span, span event, and span link attribute redaction via ADOT_REDACT_SPAN_ATTRIBUTES
+- feat: redact span, span event, and span link attributes via ADOT_REDACT_SPAN_ATTRIBUTES
   ([#886](https://github.com/aws-observability/aws-otel-python-instrumentation/pull/886))
 - feat(langchain): classify LangGraph StateGraph invocations as agent or workflow spans through the Pregel runtime
   ([#888](https://github.com/aws-observability/aws-otel-python-instrumentation/pull/888))
