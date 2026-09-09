@@ -7,7 +7,7 @@ from __future__ import annotations
 import logging
 from contextvars import Token
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any, Literal, Optional
 from uuid import UUID
 
 from langchain_core.callbacks import BaseCallbackHandler
@@ -329,24 +329,25 @@ class OpenTelemetryCallbackHandler(BaseCallbackHandler):
         declared_agent_name = chain_metadata.get("agent_name")
         lc_agent_name = chain_metadata.get("lc_agent_name")
         # Does the explicit OTel agent name belong to the graph currently being classified?
-        does_declared_agent_name_apply = bool(declared_agent_name) and (
-            not chain_metadata.get("langgraph_node") or declared_agent_name == name
+        does_declared_agent_name_apply = self._does_metadata_name_apply_to_current_graph(
+            name, declared_agent_name, chain_metadata
         )
         # Does LangChain's native agent name belong to the graph currently being classified?
-        does_lc_agent_name_apply = bool(lc_agent_name) and (
-            not chain_metadata.get("langgraph_node") or lc_agent_name == name
-        )
-        # Is this callback an agent-chain invocation?
-        is_agent_chain = self._is_agent_chain(name, metadata, pregel_agent_name)
-        # Is this callback an explicitly marked workflow-chain invocation?
-        is_workflow_chain = self._is_workflow_chain(name, metadata)
+        does_lc_agent_name_apply = self._does_metadata_name_apply_to_current_graph(name, lc_agent_name, chain_metadata)
+        chain_type = self._classify_chain(name, metadata)
+        is_agent_chain = chain_type == "agent"
+        is_workflow_chain = chain_type == "workflow"
 
         provider: str | None = self._extract_llm_provider(serialized, kwargs)
         agent_name: str | None = (
-            (declared_agent_name if does_declared_agent_name_apply else None)
-            or (lc_agent_name if does_lc_agent_name_apply else None)
-            or (pregel_agent_name if name == pregel_agent_name else None)
-            or (name if is_agent_chain else None)
+            (
+                (declared_agent_name if does_declared_agent_name_apply else None)
+                or (lc_agent_name if does_lc_agent_name_apply else None)
+                or (pregel_agent_name if name == pregel_agent_name else None)
+                or name
+            )
+            if is_agent_chain
+            else None
         )
         operation: str = (
             GenAiOperationNameValues.INVOKE_AGENT.value
@@ -847,57 +848,60 @@ class OpenTelemetryCallbackHandler(BaseCallbackHandler):
             if is_agent:
                 return False
 
-            pregel_agent_name = PregelWrapper.get_active_agent_name()
-            return not (
-                self._is_agent_chain(name, metadata, pregel_agent_name) or self._is_workflow_chain(name, metadata)
-            )
+            return self._classify_chain(name, metadata) == "chain"
         return False
 
-    @staticmethod
-    def _is_agent_chain(
-        name: Optional[str],
-        metadata: Optional[dict] = None,
-        pregel_agent_name: Optional[str] = None,
-    ) -> bool:
+    @classmethod
+    def _is_agent_chain(cls, name: Optional[str], metadata: Optional[dict] = None) -> bool:
+        """Return whether this chain callback should emit an invoke_agent span."""
+        return cls._classify_chain(name, metadata) == "agent"
+
+    @classmethod
+    def _is_workflow_chain(cls, name: Optional[str], metadata: Optional[dict] = None) -> bool:
+        """Return whether this chain callback should emit an invoke_workflow span."""
+        return cls._classify_chain(name, metadata) == "workflow"
+
+    @classmethod
+    def _classify_chain(
+        cls, name: Optional[str], metadata: Optional[dict] = None
+    ) -> Literal["agent", "workflow", "chain"]:
+        """Determine whether this is an agent chain or a workflow chain."""
         chain_metadata = metadata or {}
         declared_agent_name = chain_metadata.get("agent_name")
         # Do the OTel marker fields belong to this graph rather than an enclosing graph?
         is_otel_marker_for_current_graph = not chain_metadata.get("langgraph_node") or bool(
-            name and declared_agent_name == name
-        )
-        # Does this graph have an OTel agent marker?
-        has_otel_agent_marker = is_otel_marker_for_current_graph and bool(
-            chain_metadata.get("otel_agent_span") is True or declared_agent_name or chain_metadata.get("agent_type")
+            cls._does_metadata_name_apply_to_current_graph(name, declared_agent_name, chain_metadata)
         )
         # Does this graph have the OTel workflow marker?
         has_otel_workflow_marker = is_otel_marker_for_current_graph and chain_metadata.get("otel_workflow_span") is True
+        # Does this graph have an OTel agent marker?
+        has_otel_agent_marker = is_otel_marker_for_current_graph and bool(
+            chain_metadata.get("otel_agent_span") is True
+            or (not has_otel_workflow_marker and (declared_agent_name or chain_metadata.get("agent_type")))
+        )
         # Does this callback use legacy AgentExecutor naming?
         is_legacy_agent_executor = bool(name) and "AgentExecutor" in name
         # Does this callback use naming emitted by LangChain create_agent?
         is_langchain_create_agent = bool(name) and (name == "LangGraph" or name == chain_metadata.get("lc_agent_name"))
-        active_pregel_agent_name = pregel_agent_name or PregelWrapper.get_active_agent_name()
         # Does this callback name match the StateGraph currently running through Pregel?
-        is_pregel_stategraph = bool(name) and name == active_pregel_agent_name
-        return has_otel_agent_marker or (
+        is_pregel_stategraph = bool(name) and name == PregelWrapper.get_active_agent_name()
+        is_agent_chain = has_otel_agent_marker or (
             not has_otel_workflow_marker
             and (is_legacy_agent_executor or is_langchain_create_agent or is_pregel_stategraph)
         )
+        is_workflow_chain = has_otel_workflow_marker and not has_otel_agent_marker
+        if is_agent_chain:
+            return "agent"
+        if is_workflow_chain:
+            return "workflow"
+        return "chain"
 
     @staticmethod
-    def _is_workflow_chain(name: Optional[str], metadata: Optional[dict] = None) -> bool:
-        chain_metadata = metadata or {}
-        declared_agent_name = chain_metadata.get("agent_name")
-        # Do the OTel marker fields belong to this graph rather than an enclosing graph?
-        is_otel_marker_for_current_graph = not chain_metadata.get("langgraph_node") or bool(
-            name and declared_agent_name == name
-        )
-        # Does this graph have an OTel agent marker?
-        has_otel_agent_marker = is_otel_marker_for_current_graph and bool(
-            chain_metadata.get("otel_agent_span") is True or declared_agent_name or chain_metadata.get("agent_type")
-        )
-        # Does this graph have the OTel workflow marker?
-        has_otel_workflow_marker = is_otel_marker_for_current_graph and chain_metadata.get("otel_workflow_span") is True
-        return has_otel_workflow_marker and not has_otel_agent_marker
+    def _does_metadata_name_apply_to_current_graph(
+        name: Optional[str], metadata_name: Any, metadata: dict[str, Any]
+    ) -> bool:
+        """Return whether a metadata name identifies this graph rather than an enclosing graph."""
+        return bool(metadata_name) and (not metadata.get("langgraph_node") or metadata_name == name)
 
     @skip_instrumentation_if_suppressed
     def _handle_error(self, error: BaseException, run_id: UUID, **kwargs: Any) -> None:
@@ -995,9 +999,11 @@ class OpenTelemetryCallbackHandler(BaseCallbackHandler):
         return None
 
     def _safe_get_span(self, run_id: Optional[UUID]) -> Optional[_SpanEntry]:
+        """Return the span entry mapped to a run, including entries inherited by skipped runs."""
         return self.run_id_to_span_map.get(run_id)
 
     def _safe_get_owned_span(self, run_id: UUID) -> Optional[_SpanEntry]:
+        """Return a span only when this run created it, so skipped children cannot end ancestor spans."""
         entry = self._safe_get_span(run_id)
         return entry if entry and entry.run_id == run_id else None
 

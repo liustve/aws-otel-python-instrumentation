@@ -18,9 +18,11 @@ class PregelWrapper:
     _CONTEXT_KEY = "amazon.langchain.langgraph.pregel.agent_name"
 
     def __init__(self, is_async: bool = False):
+        """Create a wrapper for either Pregel.stream or Pregel.astream."""
         self.is_async = is_async
 
     def __call__(self, wrapped, instance, args, kwargs):
+        """Return the original Pregel iterator with graph identity scoped to each iteration."""
         graph_name = self._get_graph_name(instance, args, kwargs)
         if self.is_async:
             iterator = wrapped(*args, **kwargs).__aiter__()
@@ -52,30 +54,53 @@ class PregelWrapper:
                 if graph_name := get_name():
                     return str(graph_name)
             except Exception:  # pylint: disable=broad-except
+                # Agent detection is best effort and must not break graph execution if name resolution fails.
                 pass
 
         return "LangGraph"
 
     @classmethod
     def _iterate_with_graph_context(cls, iterator: Iterator[Any], graph_name: str) -> Iterator[Any]:
-        while True:
-            token = context.attach(context.set_value(cls._CONTEXT_KEY, graph_name))
-            try:
-                item = next(iterator)
-            except StopIteration:
-                return
-            finally:
-                context.detach(token)
-            yield item
+        """Advance a sync iterator without exposing the Pregel context to its consumer."""
+        try:
+            while True:
+                token = context.attach(context.set_value(cls._CONTEXT_KEY, graph_name))
+                try:
+                    item = next(iterator)
+                except StopIteration as exception:
+                    return exception.value
+                finally:
+                    context.detach(token)
+                yield item
+        except GeneratorExit:
+            close = getattr(iterator, "close", None)
+            if callable(close):
+                token = context.attach(context.set_value(cls._CONTEXT_KEY, graph_name))
+                try:
+                    close()
+                finally:
+                    context.detach(token)
+            raise
 
     @classmethod
     async def _aiterate_with_graph_context(cls, iterator: AsyncIterator[Any], graph_name: str) -> AsyncIterator[Any]:
-        while True:
-            token = context.attach(context.set_value(cls._CONTEXT_KEY, graph_name))
-            try:
-                item = await anext(iterator)
-            except StopAsyncIteration:
-                return
-            finally:
-                context.detach(token)
-            yield item
+        """Advance an async iterator without exposing the Pregel context to its consumer."""
+        try:
+            while True:
+                token = context.attach(context.set_value(cls._CONTEXT_KEY, graph_name))
+                try:
+                    item = await anext(iterator)
+                except StopAsyncIteration:
+                    return
+                finally:
+                    context.detach(token)
+                yield item
+        except GeneratorExit:
+            aclose = getattr(iterator, "aclose", None)
+            if callable(aclose):
+                token = context.attach(context.set_value(cls._CONTEXT_KEY, graph_name))
+                try:
+                    await aclose()
+                finally:
+                    context.detach(token)
+            raise

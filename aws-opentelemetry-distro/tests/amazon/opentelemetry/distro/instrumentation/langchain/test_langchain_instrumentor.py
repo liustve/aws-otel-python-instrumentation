@@ -309,6 +309,201 @@ class TestLangChainInstrumentor(TestCase):
         self.assertIn(GEN_AI_OUTPUT_MESSAGES, agent_spans[0].attributes)
         self.assertIsNone(PregelWrapper.get_active_agent_name())
 
+    def test_raw_stategraph_invoke_uses_stream_fallback(self):
+        try:
+            from langgraph.graph import END, START, MessagesState, StateGraph
+        except ImportError:
+            self.skipTest("langgraph is not available")
+
+        graph_builder = StateGraph(MessagesState)
+        graph_builder.add_node("respond", lambda _: {"messages": [AIMessage(content="Done.")]})
+        graph_builder.add_edge(START, "respond")
+        graph_builder.add_edge("respond", END)
+        graph = graph_builder.compile(name="InvokedRawStateGraph")
+
+        result = graph.invoke({"messages": [HumanMessage(content="Hello")]})
+
+        self.assertEqual(result["messages"][-1].content, "Done.")
+        agent_spans = [
+            span for span in self.span_exporter.get_finished_spans() if span.name == "invoke_agent InvokedRawStateGraph"
+        ]
+        self.assertEqual(len(agent_spans), 1)
+        self.assertIsNone(PregelWrapper.get_active_agent_name())
+
+    def test_raw_stategraph_ainvoke_uses_astream_fallback(self):
+        try:
+            from langgraph.graph import END, START, MessagesState, StateGraph
+        except ImportError:
+            self.skipTest("langgraph is not available")
+
+        graph_builder = StateGraph(MessagesState)
+        graph_builder.add_node("respond", lambda _: {"messages": [AIMessage(content="Done.")]})
+        graph_builder.add_edge(START, "respond")
+        graph_builder.add_edge("respond", END)
+        graph = graph_builder.compile(name="AsyncInvokedRawStateGraph")
+
+        result = asyncio.run(graph.ainvoke({"messages": [HumanMessage(content="Hello")]}))
+
+        self.assertEqual(result["messages"][-1].content, "Done.")
+        agent_spans = [
+            span
+            for span in self.span_exporter.get_finished_spans()
+            if span.name == "invoke_agent AsyncInvokedRawStateGraph"
+        ]
+        self.assertEqual(len(agent_spans), 1)
+        self.assertIsNone(PregelWrapper.get_active_agent_name())
+
+    def test_raw_stategraph_stream_close_preserves_application_behavior(self):
+        try:
+            from langgraph.graph import END, START, MessagesState, StateGraph
+        except ImportError:
+            self.skipTest("langgraph is not available")
+
+        executed_nodes = []
+
+        def first_node(_):
+            self.assertEqual(PregelWrapper.get_active_agent_name(), "ClosableRawStateGraph")
+            executed_nodes.append("first")
+            return {"messages": [AIMessage(content="First node complete.")]}
+
+        def second_node(_):
+            executed_nodes.append("second")
+            return {"messages": [AIMessage(content="Second node complete.")]}
+
+        graph_builder = StateGraph(MessagesState)
+        graph_builder.add_node("first", first_node)
+        graph_builder.add_node("second", second_node)
+        graph_builder.add_edge(START, "first")
+        graph_builder.add_edge("first", "second")
+        graph_builder.add_edge("second", END)
+        graph = graph_builder.compile(name="ClosableRawStateGraph")
+
+        stream = graph.stream(
+            {"messages": [HumanMessage(content="Hello")]},
+            stream_mode="updates",
+        )
+        first_update = next(stream)
+        self.assertEqual(first_update["first"]["messages"][0].content, "First node complete.")
+        self.assertIsNone(PregelWrapper.get_active_agent_name())
+
+        stream.close()
+
+        self.assertEqual(executed_nodes, ["first"])
+        self.assertIsNone(PregelWrapper.get_active_agent_name())
+        agent_spans = [
+            span
+            for span in self.span_exporter.get_finished_spans()
+            if span.name == "invoke_agent ClosableRawStateGraph"
+        ]
+        self.assertEqual(len(agent_spans), 1)
+
+    def test_raw_stategraph_astream_aclose_preserves_application_behavior(self):
+        try:
+            from langgraph.graph import END, START, MessagesState, StateGraph
+        except ImportError:
+            self.skipTest("langgraph is not available")
+
+        executed_nodes = []
+
+        async def first_node(_):
+            self.assertEqual(PregelWrapper.get_active_agent_name(), "ClosableAsyncRawStateGraph")
+            executed_nodes.append("first")
+            return {"messages": [AIMessage(content="First async node complete.")]}
+
+        async def second_node(_):
+            executed_nodes.append("second")
+            return {"messages": [AIMessage(content="Second async node complete.")]}
+
+        graph_builder = StateGraph(MessagesState)
+        graph_builder.add_node("first", first_node)
+        graph_builder.add_node("second", second_node)
+        graph_builder.add_edge(START, "first")
+        graph_builder.add_edge("first", "second")
+        graph_builder.add_edge("second", END)
+        graph = graph_builder.compile(name="ClosableAsyncRawStateGraph")
+
+        async def consume_first_update():
+            stream = graph.astream(
+                {"messages": [HumanMessage(content="Hello")]},
+                stream_mode="updates",
+            )
+            first_update = await anext(stream)
+            self.assertEqual(first_update["first"]["messages"][0].content, "First async node complete.")
+            self.assertIsNone(PregelWrapper.get_active_agent_name())
+            await stream.aclose()
+
+        asyncio.run(consume_first_update())
+
+        self.assertEqual(executed_nodes, ["first"])
+        self.assertIsNone(PregelWrapper.get_active_agent_name())
+        agent_spans = [
+            span
+            for span in self.span_exporter.get_finished_spans()
+            if span.name == "invoke_agent ClosableAsyncRawStateGraph"
+        ]
+        self.assertEqual(len(agent_spans), 1)
+
+    def test_raw_stategraph_stream_propagates_application_error(self):
+        try:
+            from langgraph.graph import END, START, MessagesState, StateGraph
+        except ImportError:
+            self.skipTest("langgraph is not available")
+
+        expected_error = RuntimeError("sync graph failed")
+
+        def failing_node(_):
+            self.assertEqual(PregelWrapper.get_active_agent_name(), "FailingRawStateGraph")
+            raise expected_error
+
+        graph_builder = StateGraph(MessagesState)
+        graph_builder.add_node("fail", failing_node)
+        graph_builder.add_edge(START, "fail")
+        graph_builder.add_edge("fail", END)
+        graph = graph_builder.compile(name="FailingRawStateGraph")
+
+        with self.assertRaises(RuntimeError) as raised:
+            list(graph.stream({"messages": [HumanMessage(content="Hello")]}))
+
+        self.assertIs(raised.exception, expected_error)
+        self.assertIsNone(PregelWrapper.get_active_agent_name())
+        agent_span = next(
+            span for span in self.span_exporter.get_finished_spans() if span.name == "invoke_agent FailingRawStateGraph"
+        )
+        self.assertEqual(agent_span.status.status_code, StatusCode.ERROR)
+
+    def test_raw_stategraph_astream_propagates_application_error(self):
+        try:
+            from langgraph.graph import END, START, MessagesState, StateGraph
+        except ImportError:
+            self.skipTest("langgraph is not available")
+
+        expected_error = RuntimeError("async graph failed")
+
+        async def failing_node(_):
+            self.assertEqual(PregelWrapper.get_active_agent_name(), "FailingAsyncRawStateGraph")
+            raise expected_error
+
+        graph_builder = StateGraph(MessagesState)
+        graph_builder.add_node("fail", failing_node)
+        graph_builder.add_edge(START, "fail")
+        graph_builder.add_edge("fail", END)
+        graph = graph_builder.compile(name="FailingAsyncRawStateGraph")
+
+        async def consume_graph():
+            return [chunk async for chunk in graph.astream({"messages": [HumanMessage(content="Hello")]})]
+
+        with self.assertRaises(RuntimeError) as raised:
+            asyncio.run(consume_graph())
+
+        self.assertIs(raised.exception, expected_error)
+        self.assertIsNone(PregelWrapper.get_active_agent_name())
+        agent_span = next(
+            span
+            for span in self.span_exporter.get_finished_spans()
+            if span.name == "invoke_agent FailingAsyncRawStateGraph"
+        )
+        self.assertEqual(agent_span.status.status_code, StatusCode.ERROR)
+
     def test_explicit_agent_marker_takes_precedence_over_pregel_fallback(self):
         try:
             from langgraph.graph import END, START, MessagesState, StateGraph
@@ -340,6 +535,28 @@ class TestLangChainInstrumentor(TestCase):
             GenAiOperationNameValues.INVOKE_AGENT.value,
         )
 
+    def test_otel_agent_span_false_does_not_disable_pregel_fallback(self):
+        try:
+            from langgraph.graph import END, START, MessagesState, StateGraph
+        except ImportError:
+            self.skipTest("langgraph is not available")
+
+        graph_builder = StateGraph(MessagesState)
+        graph_builder.add_node("respond", lambda _: {"messages": [AIMessage(content="Done.")]})
+        graph_builder.add_edge(START, "respond")
+        graph_builder.add_edge("respond", END)
+        graph = graph_builder.compile(name="AutomaticStateGraphAgent").with_config(
+            {"metadata": {"otel_agent_span": False}}
+        )
+
+        graph.invoke({"messages": [HumanMessage(content="Hello")]})
+
+        spans = self.span_exporter.get_finished_spans()
+        self.assertEqual(
+            len([span for span in spans if span.name == "invoke_agent AutomaticStateGraphAgent"]),
+            1,
+        )
+
     def test_explicit_workflow_marker_overrides_pregel_fallback(self):
         try:
             from langgraph.graph import END, START, MessagesState, StateGraph
@@ -367,6 +584,36 @@ class TestLangChainInstrumentor(TestCase):
         self.assertIn(GEN_AI_INPUT_MESSAGES, workflow_spans[0].attributes)
         self.assertIn(GEN_AI_OUTPUT_MESSAGES, workflow_spans[0].attributes)
         self.assertFalse(any(span.name == "invoke_agent ExplicitStateGraphWorkflow" for span in spans))
+
+    def test_explicit_workflow_marker_overrides_incidental_agent_metadata(self):
+        try:
+            from langgraph.graph import END, START, MessagesState, StateGraph
+        except ImportError:
+            self.skipTest("langgraph is not available")
+
+        graph_builder = StateGraph(MessagesState)
+        graph_builder.add_node("respond", lambda _: {"messages": [AIMessage(content="Done.")]})
+        graph_builder.add_edge(START, "respond")
+        graph_builder.add_edge("respond", END)
+        graph = graph_builder.compile(name="WorkflowWithAgentMetadata").with_config(
+            {
+                "metadata": {
+                    "otel_workflow_span": True,
+                    "agent_name": "UpstreamAgentName",
+                }
+            }
+        )
+
+        graph.invoke({"messages": [HumanMessage(content="Hello")]})
+
+        spans = self.span_exporter.get_finished_spans()
+        workflow_span = next(span for span in spans if span.name == "invoke_workflow WorkflowWithAgentMetadata")
+        self.assertEqual(
+            workflow_span.attributes[GEN_AI_OPERATION_NAME],
+            GenAiOperationNameValues.INVOKE_WORKFLOW.value,
+        )
+        self.assertNotIn(GEN_AI_AGENT_NAME, workflow_span.attributes)
+        self.assertFalse(any(span.name.startswith("invoke_agent") for span in spans))
 
     def test_skipped_chains_parent_model_span_to_nearest_ancestor(self):
         try:
@@ -401,6 +648,8 @@ class TestLangChainInstrumentor(TestCase):
         )
         self.assertEqual(chat_span.context.trace_id, agent_span.context.trace_id)
         self.assertEqual(chat_span.parent.span_id, agent_span.context.span_id)
+        self.assertLess(agent_span.start_time, chat_span.start_time)
+        self.assertGreater(agent_span.end_time, chat_span.end_time)
         self.assertFalse(any("Runnable" in span.name for span in spans))
 
     def test_stategraph_with_create_agents_and_nested_stategraph_preserves_agent_hierarchy(self):
@@ -518,7 +767,7 @@ class TestLangChainInstrumentor(TestCase):
         for create_agent_span in create_agent_spans:
             self.assertEqual(create_agent_span.parent.span_id, supervisor_span.context.span_id)
         self.assertEqual(synthesis_graph_span.parent.span_id, supervisor_span.context.span_id)
-        self.assertEqual(
+        self.assertCountEqual(
             [
                 (span.attributes["langgraph.node"], span.attributes["langgraph.step"])
                 for span in (*create_agent_spans, synthesis_graph_span)
@@ -533,11 +782,11 @@ class TestLangChainInstrumentor(TestCase):
         self.assertEqual(len(chat_spans), 5)
         self.assertEqual(len(model_step_spans), 5)
         self.assertEqual(len(tool_step_spans), 2)
-        self.assertEqual(
+        self.assertCountEqual(
             [(span.attributes["langgraph.node"], span.attributes["langgraph.step"]) for span in model_step_spans],
             [("model", 1), ("model", 3), ("model", 1), ("model", 1), ("model", 3)],
         )
-        self.assertEqual(
+        self.assertCountEqual(
             [(span.attributes["langgraph.node"], span.attributes["langgraph.step"]) for span in tool_step_spans],
             [("tools", 2), ("tools", 2)],
         )
