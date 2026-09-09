@@ -861,48 +861,43 @@ class OpenTelemetryCallbackHandler(BaseCallbackHandler):
     ) -> bool:
         chain_metadata = metadata or {}
         declared_agent_name = chain_metadata.get("agent_name")
-        # Does the explicit metadata belong to this graph rather than an enclosing graph?
-        does_marker_apply_to_current_graph = not chain_metadata.get("langgraph_node") or bool(
+        # Do the OTel marker fields belong to this graph rather than an enclosing graph?
+        is_otel_marker_for_current_graph = not chain_metadata.get("langgraph_node") or bool(
             name and declared_agent_name == name
         )
-        # Does this graph explicitly declare agent semantics through OTel metadata?
-        is_explicit_agent = does_marker_apply_to_current_graph and bool(
+        # Does this graph have an OTel agent marker?
+        has_otel_agent_marker = is_otel_marker_for_current_graph and bool(
             chain_metadata.get("otel_agent_span") is True or declared_agent_name or chain_metadata.get("agent_type")
         )
-        # Does this graph explicitly declare workflow semantics through OTel metadata?
-        is_explicit_workflow = does_marker_apply_to_current_graph and chain_metadata.get("otel_workflow_span") is True
-        # Did this graph explicitly opt out of agent-span classification?
-        did_agent_opt_out = (
-            does_marker_apply_to_current_graph
-            and chain_metadata.get("otel_agent_span") is False
-            and not is_explicit_agent
-        )
-        # Is this chain recognized as an agent by existing LangChain naming metadata?
-        is_framework_agent = bool(name) and (
-            "AgentExecutor" in name or name == "LangGraph" or name == chain_metadata.get("lc_agent_name")
-        )
+        # Does this graph have the OTel workflow marker?
+        has_otel_workflow_marker = is_otel_marker_for_current_graph and chain_metadata.get("otel_workflow_span") is True
+        # Does this callback use legacy AgentExecutor naming?
+        is_legacy_agent_executor = bool(name) and "AgentExecutor" in name
+        # Does this callback use naming emitted by LangChain create_agent?
+        is_langchain_create_agent = bool(name) and (name == "LangGraph" or name == chain_metadata.get("lc_agent_name"))
         active_pregel_agent_name = pregel_agent_name or PregelWrapper.get_active_agent_name()
-        # Is this callback the active raw graph identified by the Pregel wrapper?
-        is_active_pregel_agent = bool(name) and name == active_pregel_agent_name
-        return is_explicit_agent or (
-            not is_explicit_workflow and not did_agent_opt_out and (is_framework_agent or is_active_pregel_agent)
+        # Does this callback name match the StateGraph currently running through Pregel?
+        is_pregel_stategraph = bool(name) and name == active_pregel_agent_name
+        return has_otel_agent_marker or (
+            not has_otel_workflow_marker
+            and (is_legacy_agent_executor or is_langchain_create_agent or is_pregel_stategraph)
         )
 
     @staticmethod
     def _is_workflow_chain(name: Optional[str], metadata: Optional[dict] = None) -> bool:
         chain_metadata = metadata or {}
         declared_agent_name = chain_metadata.get("agent_name")
-        # Does the explicit metadata belong to this graph rather than an enclosing graph?
-        does_marker_apply_to_current_graph = not chain_metadata.get("langgraph_node") or bool(
+        # Do the OTel marker fields belong to this graph rather than an enclosing graph?
+        is_otel_marker_for_current_graph = not chain_metadata.get("langgraph_node") or bool(
             name and declared_agent_name == name
         )
-        # Does this graph explicitly declare agent semantics through OTel metadata?
-        is_explicit_agent = does_marker_apply_to_current_graph and bool(
+        # Does this graph have an OTel agent marker?
+        has_otel_agent_marker = is_otel_marker_for_current_graph and bool(
             chain_metadata.get("otel_agent_span") is True or declared_agent_name or chain_metadata.get("agent_type")
         )
-        # Does this graph explicitly declare workflow semantics through OTel metadata?
-        is_explicit_workflow = does_marker_apply_to_current_graph and chain_metadata.get("otel_workflow_span") is True
-        return is_explicit_workflow and not is_explicit_agent
+        # Does this graph have the OTel workflow marker?
+        has_otel_workflow_marker = is_otel_marker_for_current_graph and chain_metadata.get("otel_workflow_span") is True
+        return has_otel_workflow_marker and not has_otel_agent_marker
 
     @skip_instrumentation_if_suppressed
     def _handle_error(self, error: BaseException, run_id: UUID, **kwargs: Any) -> None:

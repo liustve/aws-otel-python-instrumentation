@@ -368,7 +368,7 @@ class TestLangChainInstrumentor(TestCase):
         self.assertIn(GEN_AI_OUTPUT_MESSAGES, workflow_spans[0].attributes)
         self.assertFalse(any(span.name == "invoke_agent ExplicitStateGraphWorkflow" for span in spans))
 
-    def test_skipped_chains_parent_model_span_to_nearest_ancestor_e2e(self):
+    def test_skipped_chains_parent_model_span_to_nearest_ancestor(self):
         try:
             from langchain_aws import ChatBedrockConverse
             from langgraph.graph import END, START, MessagesState, StateGraph
@@ -401,6 +401,181 @@ class TestLangChainInstrumentor(TestCase):
         )
         self.assertEqual(chat_span.context.trace_id, agent_span.context.trace_id)
         self.assertEqual(chat_span.parent.span_id, agent_span.context.span_id)
+        self.assertFalse(any("Runnable" in span.name for span in spans))
+
+    def test_stategraph_with_create_agents_and_nested_stategraph_preserves_agent_hierarchy(self):
+        try:
+            from langchain_aws import ChatBedrockConverse
+            from langgraph.graph import END, START, MessagesState, StateGraph
+        except ImportError:
+            self.skipTest("langgraph or langchain-aws is not available")
+        if not create_agent:
+            self.skipTest("langchain create_agent is not available")
+
+        @tool
+        def search_knowledge_base(query: str) -> str:
+            """Search the internal knowledge base."""
+            return f"Found research for: {query}"
+
+        @tool
+        def check_draft(draft: str) -> str:
+            """Check a draft for correctness."""
+            return f"Draft approved: {draft}"
+
+        def text_response(text: str) -> dict:
+            return {
+                "output": {"message": {"role": "assistant", "content": [{"text": text}]}},
+                "stopReason": "end_turn",
+                "usage": {"inputTokens": 10, "outputTokens": 20, "totalTokens": 30},
+                "metrics": {"latencyMs": 1},
+            }
+
+        def tool_response(tool_use_id: str, tool_name: str, tool_input: dict) -> dict:
+            return {
+                "output": {
+                    "message": {
+                        "role": "assistant",
+                        "content": [
+                            {
+                                "toolUse": {
+                                    "toolUseId": tool_use_id,
+                                    "name": tool_name,
+                                    "input": tool_input,
+                                }
+                            }
+                        ],
+                    }
+                },
+                "stopReason": "tool_use",
+                "usage": {"inputTokens": 10, "outputTokens": 5, "totalTokens": 15},
+                "metrics": {"latencyMs": 1},
+            }
+
+        def invoke_graph(client):
+            llm = ChatBedrockConverse(model="anthropic.claude-fable-5", client=client)
+            research_agent = create_agent(llm, tools=[search_knowledge_base], name="ResearchCreateAgent")
+            writer_agent = create_agent(llm, tools=[], name="WriterCreateAgent")
+            review_agent = create_agent(llm, tools=[check_draft], name="ReviewCreateAgent")
+
+            synthesis_builder = StateGraph(MessagesState)
+            synthesis_builder.add_node(
+                "synthesize",
+                lambda _: {"messages": [AIMessage(content="StateGraph synthesis complete.")]},
+            )
+            synthesis_builder.add_edge(START, "synthesize")
+            synthesis_builder.add_edge("synthesize", END)
+            nested_synthesis_graph = synthesis_builder.compile(name="NestedSynthesisStateGraph")
+
+            supervisor_builder = StateGraph(MessagesState)
+            supervisor_builder.add_node(
+                "prepare",
+                RunnableLambda(lambda _: {"messages": [HumanMessage(content="Prepared for the nested agent.")]}),
+            )
+            supervisor_builder.add_node("research_agent", research_agent)
+            supervisor_builder.add_node("nested_synthesis_graph", nested_synthesis_graph)
+            supervisor_builder.add_node("writer_agent", writer_agent)
+            supervisor_builder.add_node("review_agent", review_agent)
+            supervisor_builder.add_edge(START, "prepare")
+            supervisor_builder.add_edge("prepare", "research_agent")
+            supervisor_builder.add_edge("research_agent", "nested_synthesis_graph")
+            supervisor_builder.add_edge("nested_synthesis_graph", "writer_agent")
+            supervisor_builder.add_edge("writer_agent", "review_agent")
+            supervisor_builder.add_edge("review_agent", END)
+            supervisor = supervisor_builder.compile(name="MixedStateGraphSupervisor")
+
+            supervisor.invoke({"messages": [HumanMessage(content="Start the mixed graph.")]})
+
+        call_mock_llm(
+            "bedrock",
+            invoke_llm_callback=invoke_graph,
+            responses=[
+                tool_response("research-tool-use", "search_knowledge_base", {"query": "agent tracing"}),
+                text_response("Research complete."),
+                text_response("Draft complete."),
+                tool_response("review-tool-use", "check_draft", {"draft": "Draft complete."}),
+                text_response("Review complete."),
+            ],
+        )
+
+        spans = self.span_exporter.get_finished_spans()
+        supervisor_span = next(span for span in spans if span.name == "invoke_agent MixedStateGraphSupervisor")
+        create_agent_spans = [
+            next(span for span in spans if span.name == f"invoke_agent {agent_name}")
+            for agent_name in ("ResearchCreateAgent", "WriterCreateAgent", "ReviewCreateAgent")
+        ]
+        synthesis_graph_span = next(span for span in spans if span.name == "invoke_agent NestedSynthesisStateGraph")
+        chat_spans = [
+            span for span in spans if span.attributes.get(GEN_AI_OPERATION_NAME) == GenAiOperationNameValues.CHAT.value
+        ]
+        tool_spans = [
+            span
+            for span in spans
+            if span.attributes.get(GEN_AI_OPERATION_NAME) == GenAiOperationNameValues.EXECUTE_TOOL.value
+        ]
+        model_step_spans = [span for span in spans if span.name == "chain model"]
+        tool_step_spans = [span for span in spans if span.name == "chain tools"]
+
+        for create_agent_span in create_agent_spans:
+            self.assertEqual(create_agent_span.parent.span_id, supervisor_span.context.span_id)
+        self.assertEqual(synthesis_graph_span.parent.span_id, supervisor_span.context.span_id)
+        self.assertEqual(
+            [
+                (span.attributes["langgraph.node"], span.attributes["langgraph.step"])
+                for span in (*create_agent_spans, synthesis_graph_span)
+            ],
+            [
+                ("research_agent", 2),
+                ("writer_agent", 4),
+                ("review_agent", 5),
+                ("nested_synthesis_graph", 3),
+            ],
+        )
+        self.assertEqual(len(chat_spans), 5)
+        self.assertEqual(len(model_step_spans), 5)
+        self.assertEqual(len(tool_step_spans), 2)
+        self.assertEqual(
+            [(span.attributes["langgraph.node"], span.attributes["langgraph.step"]) for span in model_step_spans],
+            [("model", 1), ("model", 3), ("model", 1), ("model", 1), ("model", 3)],
+        )
+        self.assertEqual(
+            [(span.attributes["langgraph.node"], span.attributes["langgraph.step"]) for span in tool_step_spans],
+            [("tools", 2), ("tools", 2)],
+        )
+        model_step_parent_span_ids = [span.parent.span_id for span in model_step_spans]
+        self.assertEqual(model_step_parent_span_ids.count(create_agent_spans[0].context.span_id), 2)
+        self.assertEqual(model_step_parent_span_ids.count(create_agent_spans[1].context.span_id), 1)
+        self.assertEqual(model_step_parent_span_ids.count(create_agent_spans[2].context.span_id), 2)
+        self.assertEqual(
+            {span.parent.span_id for span in chat_spans},
+            {span.context.span_id for span in model_step_spans},
+        )
+        self.assertEqual(
+            {span.attributes[GEN_AI_TOOL_NAME] for span in tool_spans},
+            {"search_knowledge_base", "check_draft"},
+        )
+        self.assertEqual(
+            {span.parent.span_id for span in tool_step_spans},
+            {create_agent_spans[0].context.span_id, create_agent_spans[2].context.span_id},
+        )
+        self.assertEqual(
+            {span.parent.span_id for span in tool_spans},
+            {span.context.span_id for span in tool_step_spans},
+        )
+        self.assertEqual(
+            {
+                span.context.trace_id
+                for span in (
+                    supervisor_span,
+                    synthesis_graph_span,
+                    *create_agent_spans,
+                    *model_step_spans,
+                    *tool_step_spans,
+                    *chat_spans,
+                    *tool_spans,
+                )
+            },
+            {supervisor_span.context.trace_id},
+        )
         self.assertFalse(any("Runnable" in span.name for span in spans))
 
     def test_nested_raw_stategraph_uses_pregel_fallback_under_explicit_agent(self):
