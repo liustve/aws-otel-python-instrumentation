@@ -23,9 +23,9 @@ class RedactionTestData:
     name: str
     environment_variables: dict[str, str]
     span_attributes: dict[str, AttributeValue]
-    event_attributes: dict[str, AttributeValue]
+    span_event_attributes: dict[str, AttributeValue]
     expected_span_attributes: dict[str, AttributeValue]
-    expected_event_attributes: dict[str, AttributeValue]
+    expected_span_event_attributes: dict[str, AttributeValue]
     expected_span_link_attributes: dict[str, AttributeValue]
 
 
@@ -47,7 +47,7 @@ class TestAttributeRedactingSpanProcessor(TestCase):
                     "http.request.method": "POST",
                     "server.address": "example.com",
                 },
-                event_attributes={
+                span_event_attributes={
                     "user.email": "event-user@example.com",
                     "db.statement": "UPDATE users SET password = 'secret'",
                     "gen_ai.prompt": "private event prompt",
@@ -61,7 +61,7 @@ class TestAttributeRedactingSpanProcessor(TestCase):
                     "http.request.method": "POST",
                     "server.address": "example.com",
                 },
-                expected_event_attributes={
+                expected_span_event_attributes={
                     "user.email": REDACTED_VALUE,
                     "db.statement": REDACTED_VALUE,
                     "gen_ai.prompt": REDACTED_VALUE,
@@ -82,13 +82,13 @@ class TestAttributeRedactingSpanProcessor(TestCase):
                     ENV_ADOT_REDACT_SPAN_ATTRIBUTES: "*",
                 },
                 span_attributes={"first": "secret", "second": 42, "third": True},
-                event_attributes={"event.first": "secret", "event.second": 42},
+                span_event_attributes={"event.first": "secret", "event.second": 42},
                 expected_span_attributes={
                     "first": REDACTED_VALUE,
                     "second": REDACTED_VALUE,
                     "third": REDACTED_VALUE,
                 },
-                expected_event_attributes={
+                expected_span_event_attributes={
                     "event.first": REDACTED_VALUE,
                     "event.second": REDACTED_VALUE,
                 },
@@ -108,7 +108,7 @@ class TestAttributeRedactingSpanProcessor(TestCase):
                     "http.response.status_code": 200,
                     "server.address": "example.com",
                 },
-                event_attributes={
+                span_event_attributes={
                     "http.request.header.authorization": "secret",
                     "event.safe": "keep me",
                 },
@@ -117,7 +117,7 @@ class TestAttributeRedactingSpanProcessor(TestCase):
                     "http.response.status_code": REDACTED_VALUE,
                     "server.address": "example.com",
                 },
-                expected_event_attributes={
+                expected_span_event_attributes={
                     "http.request.header.authorization": REDACTED_VALUE,
                     "event.safe": "keep me",
                 },
@@ -133,13 +133,13 @@ class TestAttributeRedactingSpanProcessor(TestCase):
                     ENV_ADOT_REDACT_SPAN_ATTRIBUTES: "*.body",
                 },
                 span_attributes={"request.body": "secret", "response.body": "secret", "body.size": 42},
-                event_attributes={"message.body": "secret", "message.body.size": 42},
+                span_event_attributes={"message.body": "secret", "message.body.size": 42},
                 expected_span_attributes={
                     "request.body": REDACTED_VALUE,
                     "response.body": REDACTED_VALUE,
                     "body.size": 42,
                 },
-                expected_event_attributes={
+                expected_span_event_attributes={
                     "message.body": REDACTED_VALUE,
                     "message.body.size": 42,
                 },
@@ -159,7 +159,7 @@ class TestAttributeRedactingSpanProcessor(TestCase):
                     "gen_ai.output.content": "secret output",
                     "gen_ai.request.model": "model",
                 },
-                event_attributes={
+                span_event_attributes={
                     "gen_ai.tool.content": "secret event",
                     "gen_ai.tool.name": "lookup",
                 },
@@ -168,7 +168,7 @@ class TestAttributeRedactingSpanProcessor(TestCase):
                     "gen_ai.output.content": REDACTED_VALUE,
                     "gen_ai.request.model": "model",
                 },
-                expected_event_attributes={
+                expected_span_event_attributes={
                     "gen_ai.tool.content": REDACTED_VALUE,
                     "gen_ai.tool.name": "lookup",
                 },
@@ -184,7 +184,7 @@ class TestAttributeRedactingSpanProcessor(TestCase):
                     ENV_ADOT_REDACT_SPAN_ATTRIBUTES: "user.email,http.*",
                 },
                 span_attributes={"user.email": "user@example.com", "http.route": "/users", "safe": "value"},
-                event_attributes={
+                span_event_attributes={
                     "user.email": "event-user@example.com",
                     "http.response.body": "secret",
                     "event.safe": "keep me",
@@ -194,7 +194,7 @@ class TestAttributeRedactingSpanProcessor(TestCase):
                     "http.route": REDACTED_VALUE,
                     "safe": "value",
                 },
-                expected_event_attributes={
+                expected_span_event_attributes={
                     "user.email": REDACTED_VALUE,
                     "http.response.body": REDACTED_VALUE,
                     "event.safe": "keep me",
@@ -219,9 +219,9 @@ class TestAttributeRedactingSpanProcessor(TestCase):
                     ENV_ADOT_REDACT_SPAN_ATTRIBUTES: "",
                 },
                 span_attributes={"user.email": "user@example.com"},
-                event_attributes={"user.email": "event-user@example.com"},
+                span_event_attributes={"user.email": "event-user@example.com"},
                 expected_span_attributes={"user.email": "user@example.com"},
-                expected_event_attributes={"user.email": "event-user@example.com"},
+                expected_span_event_attributes={"user.email": "event-user@example.com"},
                 expected_span_link_attributes={"user.email": "user@example.com"},
             ),
             RedactionTestData(
@@ -230,9 +230,9 @@ class TestAttributeRedactingSpanProcessor(TestCase):
                     ENV_ADOT_REDACT_SPAN_ATTRIBUTES: " , , ",
                 },
                 span_attributes={"request.body": "secret"},
-                event_attributes={"request.body": "event secret"},
+                span_event_attributes={"request.body": "event secret"},
                 expected_span_attributes={"request.body": "secret"},
-                expected_event_attributes={"request.body": "event secret"},
+                expected_span_event_attributes={"request.body": "event secret"},
                 expected_span_link_attributes={"request.body": "secret"},
             ),
             RedactionTestData(
@@ -241,9 +241,9 @@ class TestAttributeRedactingSpanProcessor(TestCase):
                     ENV_ADOT_REDACT_SPAN_ATTRIBUTES: " \t ",
                 },
                 span_attributes={"db.statement": "SELECT * FROM users"},
-                event_attributes={"db.statement": "DELETE FROM users"},
+                span_event_attributes={"db.statement": "DELETE FROM users"},
                 expected_span_attributes={"db.statement": "SELECT * FROM users"},
-                expected_event_attributes={"db.statement": "DELETE FROM users"},
+                expected_span_event_attributes={"db.statement": "DELETE FROM users"},
                 expected_span_link_attributes={"db.statement": "SELECT * FROM users"},
             ),
             RedactionTestData(
@@ -252,9 +252,9 @@ class TestAttributeRedactingSpanProcessor(TestCase):
                     ENV_ADOT_REDACT_SPAN_ATTRIBUTES: r"http\.request\..+",
                 },
                 span_attributes={"http.request.method": "POST"},
-                event_attributes={"http.request.body": "secret"},
+                span_event_attributes={"http.request.body": "secret"},
                 expected_span_attributes={"http.request.method": "POST"},
-                expected_event_attributes={"http.request.body": "secret"},
+                expected_span_event_attributes={"http.request.body": "secret"},
                 expected_span_link_attributes={"http.request.method": "POST"},
             ),
             RedactionTestData(
@@ -263,9 +263,9 @@ class TestAttributeRedactingSpanProcessor(TestCase):
                     ENV_ADOT_REDACT_SPAN_ATTRIBUTES: "^user.email$",
                 },
                 span_attributes={"user.email": "user@example.com"},
-                event_attributes={"user.email": "event-user@example.com"},
+                span_event_attributes={"user.email": "event-user@example.com"},
                 expected_span_attributes={"user.email": "user@example.com"},
-                expected_event_attributes={"user.email": "event-user@example.com"},
+                expected_span_event_attributes={"user.email": "event-user@example.com"},
                 expected_span_link_attributes={"user.email": "user@example.com"},
             ),
             RedactionTestData(
@@ -274,9 +274,9 @@ class TestAttributeRedactingSpanProcessor(TestCase):
                     ENV_ADOT_REDACT_SPAN_ATTRIBUTES: "http.request.[a-z]+",
                 },
                 span_attributes={"http.request.method": "POST"},
-                event_attributes={"http.request.body": "secret"},
+                span_event_attributes={"http.request.body": "secret"},
                 expected_span_attributes={"http.request.method": "POST"},
-                expected_event_attributes={"http.request.body": "secret"},
+                expected_span_event_attributes={"http.request.body": "secret"},
                 expected_span_link_attributes={"http.request.method": "POST"},
             ),
             RedactionTestData(
@@ -288,7 +288,7 @@ class TestAttributeRedactingSpanProcessor(TestCase):
                     "user.email": "user@example.com",
                     "request.body": "secret",
                 },
-                event_attributes={
+                span_event_attributes={
                     "user.email": "event-user@example.com",
                     "request.body": "event secret",
                 },
@@ -296,7 +296,7 @@ class TestAttributeRedactingSpanProcessor(TestCase):
                     "user.email": "user@example.com",
                     "request.body": "secret",
                 },
-                expected_event_attributes={
+                expected_span_event_attributes={
                     "user.email": "event-user@example.com",
                     "request.body": "event secret",
                 },
@@ -311,9 +311,9 @@ class TestAttributeRedactingSpanProcessor(TestCase):
                     ENV_ADOT_REDACT_SPAN_ATTRIBUTES: "http.request.?",
                 },
                 span_attributes={"http.request.method": "POST"},
-                event_attributes={"http.request.body": "secret"},
+                span_event_attributes={"http.request.body": "secret"},
                 expected_span_attributes={"http.request.method": "POST"},
-                expected_event_attributes={"http.request.body": "secret"},
+                expected_span_event_attributes={"http.request.body": "secret"},
                 expected_span_link_attributes={"http.request.method": "POST"},
             ),
             RedactionTestData(
@@ -322,9 +322,9 @@ class TestAttributeRedactingSpanProcessor(TestCase):
                     ENV_ADOT_REDACT_SPAN_ATTRIBUTES: "http.request.[",
                 },
                 span_attributes={"http.request.method": "POST"},
-                event_attributes={"http.request.body": "secret"},
+                span_event_attributes={"http.request.body": "secret"},
                 expected_span_attributes={"http.request.method": "POST"},
-                expected_event_attributes={"http.request.body": "secret"},
+                expected_span_event_attributes={"http.request.body": "secret"},
                 expected_span_link_attributes={"http.request.method": "POST"},
             ),
             RedactionTestData(
@@ -333,9 +333,9 @@ class TestAttributeRedactingSpanProcessor(TestCase):
                     ENV_ADOT_REDACT_SPAN_ATTRIBUTES: "custom,attribute",
                 },
                 span_attributes={"custom,attribute": "secret"},
-                event_attributes={"custom,attribute": "event secret"},
+                span_event_attributes={"custom,attribute": "event secret"},
                 expected_span_attributes={"custom,attribute": "secret"},
-                expected_event_attributes={"custom,attribute": "event secret"},
+                expected_span_event_attributes={"custom,attribute": "event secret"},
                 expected_span_link_attributes={"custom,attribute": "secret"},
             ),
         )
@@ -367,7 +367,7 @@ class TestAttributeRedactingSpanProcessor(TestCase):
                 attributes=test_data.span_attributes,
                 links=[link],
             ) as span:
-                span.add_event("test.event", attributes=test_data.event_attributes)
+                span.add_event("test.event", attributes=test_data.span_event_attributes)
 
             self.assertTrue(provider.force_flush())
             finished_spans = exporter.get_finished_spans()
@@ -378,7 +378,7 @@ class TestAttributeRedactingSpanProcessor(TestCase):
             self.assertEqual(dict(exported_span.links[0].attributes), test_data.expected_span_link_attributes)
             self.assertEqual(
                 {event.name: dict(event.attributes) for event in exported_span.events},
-                {"test.event": test_data.expected_event_attributes},
+                {"test.event": test_data.expected_span_event_attributes},
             )
         finally:
             provider.shutdown()
