@@ -7,8 +7,8 @@ from unittest import TestCase
 from unittest.mock import patch
 
 from amazon.opentelemetry.distro.attribute_redacting_span_processor import (
-    ENV_ADOT_REDACT_SPAN_EVENT_ATTRIBUTES,
     ENV_ADOT_REDACT_SPAN_ATTRIBUTES,
+    ENV_ADOT_REDACT_SPAN_EVENT_ATTRIBUTES,
     REDACTED_VALUE,
     AttributeRedactingSpanProcessor,
 )
