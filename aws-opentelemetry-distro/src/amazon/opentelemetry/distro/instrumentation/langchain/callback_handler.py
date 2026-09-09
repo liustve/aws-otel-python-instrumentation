@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import logging
 from contextvars import Token
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Optional
 from uuid import UUID
 
@@ -22,6 +23,7 @@ from amazon.opentelemetry.distro.instrumentation.common.instrumentation_utils im
     to_tool_attribute_value,
     try_detach,
 )
+from amazon.opentelemetry.distro.instrumentation.langchain.wrapper import PregelWrapper
 from opentelemetry import context
 from opentelemetry.semconv._incubating.attributes.gen_ai_attributes import (
     GEN_AI_AGENT_NAME,
@@ -55,6 +57,7 @@ from opentelemetry.semconv._incubating.attributes.gen_ai_attributes import (
     GEN_AI_USAGE_INPUT_TOKENS,
     GEN_AI_USAGE_OUTPUT_TOKENS,
     GEN_AI_USAGE_REASONING_OUTPUT_TOKENS,
+    GEN_AI_WORKFLOW_NAME,
     GenAiOperationNameValues,
 )
 from opentelemetry.semconv.attributes.error_attributes import ERROR_TYPE
@@ -71,6 +74,14 @@ _logger = logging.getLogger(__name__)
 
 LANGGRAPH_STEP_SPAN_ATTR = "langgraph.step"
 LANGGRAPH_NODE_SPAN_ATTR = "langgraph.node"
+
+
+@dataclass(frozen=True)
+class _SpanEntry:
+    # Run that created this span, so a skipped child run sharing this entry cannot end it.
+    run_id: UUID
+    span: Span
+    token: Token
 
 
 class _BaseCallbackManagerInitWrapper:
@@ -104,6 +115,8 @@ class OpenTelemetryCallbackHandler(BaseCallbackHandler):
         super().__init__()
         self.tracer = tracer
         self.should_suppress_internal_chains = should_suppress_internal_chains
+        # Every callback run maps directly to its own span entry or the nearest
+        # ancestor span entry when that run is intentionally suppressed.
         self.run_id_to_span_map: DictWithLock = DictWithLock()
 
     @skip_instrumentation_if_suppressed
@@ -182,10 +195,11 @@ class OpenTelemetryCallbackHandler(BaseCallbackHandler):
         self, response: LLMResult, *, run_id: UUID, **kwargs: Any
     ) -> None:
 
-        entry = self._safe_get_span(run_id)
+        entry = self._safe_get_owned_span(run_id)
         if not entry:
+            self._end_span(run_id)
             return
-        span, _ = entry
+        span = entry.span
         llm_output: dict | None = response.llm_output
         model: str | None = (llm_output.get("model_name") or llm_output.get("model_id")) if llm_output else None
         response_id: str | None = llm_output.get("id") if llm_output else None
@@ -299,6 +313,7 @@ class OpenTelemetryCallbackHandler(BaseCallbackHandler):
 
         name: str | None = self._get_name_from_callback(serialized, **kwargs)
         if self._should_skip_chain(serialized, name, metadata):
+            self.run_id_to_span_map.put(run_id, self._safe_get_span(parent_run_id))
             return
 
         # AgentExecutor is the legacy LangChain agent node, lc_agent_name metadata was added in
@@ -306,16 +321,39 @@ class OpenTelemetryCallbackHandler(BaseCallbackHandler):
         # otherwise if no name is given it defaults to "LangGraph".
         # langgraph_node check ensures we only match against agent nodes, not unwanted
         # internal nodes.
-        is_agent_chain: bool = bool(name) and (
-            "AgentExecutor" in name or name == "LangGraph" or name == (metadata or {}).get("lc_agent_name")
+        # Explicit OTel markers take precedence, while Pregel.stream/astream provides
+        # the automatic fallback for raw StateGraph invocations.
+        chain_metadata = metadata or {}
+        pregel_agent_name = PregelWrapper.get_active_agent_name()
+        declared_agent_name = chain_metadata.get("agent_name")
+        lc_agent_name = chain_metadata.get("lc_agent_name")
+        # Does the explicit OTel agent name belong to the graph currently being classified?
+        does_declared_agent_name_apply = bool(declared_agent_name) and (
+            not chain_metadata.get("langgraph_node") or declared_agent_name == name
         )
+        # Does LangChain's native agent name belong to the graph currently being classified?
+        does_lc_agent_name_apply = bool(lc_agent_name) and (
+            not chain_metadata.get("langgraph_node") or lc_agent_name == name
+        )
+        # Is this callback an agent-chain invocation?
+        is_agent_chain = self._is_agent_chain(name, metadata, pregel_agent_name)
+        # Is this callback an explicitly marked workflow-chain invocation?
+        is_workflow_chain = self._is_workflow_chain(name, metadata)
 
         provider: str | None = self._extract_llm_provider(serialized, kwargs)
-        agent_name: str | None = (metadata.get("lc_agent_name") if metadata else None) or (
-            name if is_agent_chain else None
+        agent_name: str | None = (
+            (declared_agent_name if does_declared_agent_name_apply else None)
+            or (lc_agent_name if does_lc_agent_name_apply else None)
+            or (pregel_agent_name if name == pregel_agent_name else None)
+            or (name if is_agent_chain else None)
         )
-        operation: str = GenAiOperationNameValues.INVOKE_AGENT.value if is_agent_chain else "chain"
-        span_name: str = f"{operation} {name}" if name else operation
+        operation: str = (
+            GenAiOperationNameValues.INVOKE_AGENT.value
+            if is_agent_chain
+            else GenAiOperationNameValues.INVOKE_WORKFLOW.value if is_workflow_chain else "chain"
+        )
+        operation_target = agent_name if is_agent_chain else name
+        span_name: str = f"{operation} {operation_target}" if operation_target else operation
 
         span: Span = self._start_span(run_id, parent_run_id, span_name)
 
@@ -323,6 +361,11 @@ class OpenTelemetryCallbackHandler(BaseCallbackHandler):
         self._set_span_attribute(span, GEN_AI_PROVIDER_NAME, provider)
         if is_agent_chain:
             self._set_span_attribute(span, GEN_AI_OPERATION_NAME, GenAiOperationNameValues.INVOKE_AGENT.value)
+        if is_workflow_chain:
+            self._set_span_attribute(span, GEN_AI_OPERATION_NAME, GenAiOperationNameValues.INVOKE_WORKFLOW.value)
+            self._set_span_attribute(span, GEN_AI_WORKFLOW_NAME, name)
+
+        if is_agent_chain or is_workflow_chain:
             payload = inputs.get("messages") or inputs.get("input") if isinstance(inputs, dict) else None
             if payload:
                 _, conversation = self._format_lc_messages(
@@ -334,17 +377,27 @@ class OpenTelemetryCallbackHandler(BaseCallbackHandler):
 
     @skip_instrumentation_if_suppressed
     def on_chain_end(self, outputs: dict[str, Any], *, run_id: UUID, **kwargs: Any) -> None:
-        entry = self._safe_get_span(run_id)
-        if entry:
-            span, _ = entry
-            payload = outputs.get("messages") or outputs.get("output") if isinstance(outputs, dict) else None
-            if payload and GenAiOperationNameValues.INVOKE_AGENT.value in getattr(span, "name", ""):
-                messages = convert_to_messages([payload] if isinstance(payload, str) else payload)
-                _, conversation = self._format_lc_messages([messages])
-                if conversation:
-                    finish_reason = self._extract_finish_reason(messages[-1]) if messages else "stop"
-                    message = {**conversation[-1], "role": "assistant", "finish_reason": finish_reason}
-                    self._set_span_attribute(span, GEN_AI_OUTPUT_MESSAGES, serialize_to_json_string([message]))
+        entry = self._safe_get_owned_span(run_id)
+        if not entry:
+            self._end_span(run_id)
+            return
+
+        span = entry.span
+        payload = outputs.get("messages") or outputs.get("output") if isinstance(outputs, dict) else None
+        is_agent_or_workflow_span = any(
+            operation in getattr(span, "name", "")
+            for operation in (
+                GenAiOperationNameValues.INVOKE_AGENT.value,
+                GenAiOperationNameValues.INVOKE_WORKFLOW.value,
+            )
+        )
+        if payload and is_agent_or_workflow_span:
+            messages = convert_to_messages([payload] if isinstance(payload, str) else payload)
+            _, conversation = self._format_lc_messages([messages])
+            if conversation:
+                finish_reason = self._extract_finish_reason(messages[-1]) if messages else "stop"
+                message = {**conversation[-1], "role": "assistant", "finish_reason": finish_reason}
+                self._set_span_attribute(span, GEN_AI_OUTPUT_MESSAGES, serialize_to_json_string([message]))
         self._end_span(run_id)
 
     def on_chain_error(self, error: BaseException, *, run_id: UUID, **kwargs: Any) -> None:
@@ -388,10 +441,11 @@ class OpenTelemetryCallbackHandler(BaseCallbackHandler):
     @skip_instrumentation_if_suppressed
     def on_tool_end(self, output: Any, *, run_id: UUID, **kwargs: Any) -> None:
 
-        entry = self._safe_get_span(run_id)
+        entry = self._safe_get_owned_span(run_id)
         if not entry:
+            self._end_span(run_id)
             return
-        span, _ = entry
+        span = entry.span
         self._set_span_attribute(span, GEN_AI_TOOL_CALL_RESULT, to_tool_attribute_value(output))
         self._end_span(run_id)
 
@@ -787,20 +841,76 @@ class OpenTelemetryCallbackHandler(BaseCallbackHandler):
         # We suppress internal nodes that have langgraph metadata, except for nodes that
         # contain the agent name metadata as those are used for invoke_agent spans.
         if metadata and any(k.startswith("langgraph_") for k in metadata):
+            # Is this chain recognized by the original LangGraph agent fallback?
             is_agent = "lc_agent_name" in metadata or (name and ("LangGraph" == name or "AgentExecutor" in name))
-            return not is_agent
+            if is_agent:
+                return False
+
+            pregel_agent_name = PregelWrapper.get_active_agent_name()
+            return not (
+                self._is_agent_chain(name, metadata, pregel_agent_name) or self._is_workflow_chain(name, metadata)
+            )
         return False
+
+    @staticmethod
+    def _is_agent_chain(
+        name: Optional[str],
+        metadata: Optional[dict] = None,
+        pregel_agent_name: Optional[str] = None,
+    ) -> bool:
+        chain_metadata = metadata or {}
+        declared_agent_name = chain_metadata.get("agent_name")
+        # Does the explicit metadata belong to this graph rather than an enclosing graph?
+        does_marker_apply_to_current_graph = not chain_metadata.get("langgraph_node") or bool(
+            name and declared_agent_name == name
+        )
+        # Does this graph explicitly declare agent semantics through OTel metadata?
+        is_explicit_agent = does_marker_apply_to_current_graph and bool(
+            chain_metadata.get("otel_agent_span") is True or declared_agent_name or chain_metadata.get("agent_type")
+        )
+        # Does this graph explicitly declare workflow semantics through OTel metadata?
+        is_explicit_workflow = does_marker_apply_to_current_graph and chain_metadata.get("otel_workflow_span") is True
+        # Did this graph explicitly opt out of agent-span classification?
+        did_agent_opt_out = (
+            does_marker_apply_to_current_graph
+            and chain_metadata.get("otel_agent_span") is False
+            and not is_explicit_agent
+        )
+        # Is this chain recognized as an agent by existing LangChain naming metadata?
+        is_framework_agent = bool(name) and (
+            "AgentExecutor" in name or name == "LangGraph" or name == chain_metadata.get("lc_agent_name")
+        )
+        active_pregel_agent_name = pregel_agent_name or PregelWrapper.get_active_agent_name()
+        # Is this callback the active raw graph identified by the Pregel wrapper?
+        is_active_pregel_agent = bool(name) and name == active_pregel_agent_name
+        return is_explicit_agent or (
+            not is_explicit_workflow and not did_agent_opt_out and (is_framework_agent or is_active_pregel_agent)
+        )
+
+    @staticmethod
+    def _is_workflow_chain(name: Optional[str], metadata: Optional[dict] = None) -> bool:
+        chain_metadata = metadata or {}
+        declared_agent_name = chain_metadata.get("agent_name")
+        # Does the explicit metadata belong to this graph rather than an enclosing graph?
+        does_marker_apply_to_current_graph = not chain_metadata.get("langgraph_node") or bool(
+            name and declared_agent_name == name
+        )
+        # Does this graph explicitly declare agent semantics through OTel metadata?
+        is_explicit_agent = does_marker_apply_to_current_graph and bool(
+            chain_metadata.get("otel_agent_span") is True or declared_agent_name or chain_metadata.get("agent_type")
+        )
+        # Does this graph explicitly declare workflow semantics through OTel metadata?
+        is_explicit_workflow = does_marker_apply_to_current_graph and chain_metadata.get("otel_workflow_span") is True
+        return is_explicit_workflow and not is_explicit_agent
 
     @skip_instrumentation_if_suppressed
     def _handle_error(self, error: BaseException, run_id: UUID, **kwargs: Any) -> None:
 
-        entry = self._safe_get_span(run_id)
-        if not entry:
-            return
-        span, _ = entry
-        span.record_exception(error)
-        span.set_status(Status(StatusCode.ERROR, str(error)))
-        span.set_attribute(ERROR_TYPE, type(error).__qualname__)
+        entry = self._safe_get_owned_span(run_id)
+        if entry:
+            entry.span.record_exception(error)
+            entry.span.set_status(Status(StatusCode.ERROR, str(error)))
+            entry.span.set_attribute(ERROR_TYPE, type(error).__qualname__)
         self._end_span(run_id)
 
     def _start_span(
@@ -810,24 +920,22 @@ class OpenTelemetryCallbackHandler(BaseCallbackHandler):
         span_name: str,
         kind: SpanKind = SpanKind.INTERNAL,
     ) -> Span:
-        parent_entry = self.run_id_to_span_map.get(parent_run_id) if parent_run_id else None
+        parent_entry = self._safe_get_span(parent_run_id)
         if parent_entry:
-            parent_span, _ = parent_entry
-            span = self.tracer.start_span(span_name, context=set_span_in_context(parent_span), kind=kind)
+            span = self.tracer.start_span(span_name, context=set_span_in_context(parent_entry.span), kind=kind)
         else:
             span = self.tracer.start_span(span_name, kind=kind)
 
         token = context.attach(set_span_in_context(span))
-        self.run_id_to_span_map.put(run_id, (span, token))
+        self.run_id_to_span_map.put(run_id, _SpanEntry(run_id=run_id, span=span, token=token))
         return span
 
     def _end_span(self, run_id: UUID) -> None:
         entry = self.run_id_to_span_map.pop(run_id)
-        if not entry:
+        if not entry or entry.run_id != run_id:
             return
-        span, token = entry
-        try_detach(token)
-        span.end()
+        try_detach(entry.token)
+        entry.span.end()
 
     @staticmethod
     def _get_name_from_callback(serialized: dict[str, Any], **kwargs: Any) -> Optional[str]:
@@ -890,8 +998,12 @@ class OpenTelemetryCallbackHandler(BaseCallbackHandler):
 
         return None
 
-    def _safe_get_span(self, run_id: UUID) -> Optional[tuple[Span, Token]]:
+    def _safe_get_span(self, run_id: Optional[UUID]) -> Optional[_SpanEntry]:
         return self.run_id_to_span_map.get(run_id)
+
+    def _safe_get_owned_span(self, run_id: UUID) -> Optional[_SpanEntry]:
+        entry = self._safe_get_span(run_id)
+        return entry if entry and entry.run_id == run_id else None
 
     @staticmethod
     def _set_span_attribute(span: Span, name: str, value: Optional[AttributeValue]):
