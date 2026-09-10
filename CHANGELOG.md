@@ -12,6 +12,8 @@ If your change does not need a CHANGELOG entry, add the "skip changelog" label t
 
 ## Unreleased
 
+- fix(langchain): propagate first input, last output, and system instructions to internal agent spans
+  ([#889](https://github.com/aws-observability/aws-otel-python-instrumentation/pull/889))
 - feat: redact span, span event, and span link attributes via ADOT_REDACT_SPAN_ATTRIBUTES
   ([#886](https://github.com/aws-observability/aws-otel-python-instrumentation/pull/886))
 - feat(langchain): classify LangGraph StateGraph invocations as agent or workflow spans through the Pregel runtime

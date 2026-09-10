@@ -77,12 +77,20 @@ LANGGRAPH_STEP_SPAN_ATTR = "langgraph.step"
 LANGGRAPH_NODE_SPAN_ATTR = "langgraph.node"
 
 
-@dataclass(frozen=True)
+@dataclass
+class _AgentContent:
+    input_messages: Optional[list[dict[str, Any]]] = None
+    output_messages: Optional[list[dict[str, Any]]] = None
+    system_instructions: Optional[list[dict[str, Any]]] = None
+
+
+@dataclass
 class _SpanEntry:
     # Run that created this span, so a skipped child run sharing this entry cannot end it.
     run_id: UUID
     span: Span
     token: Token
+    agent_content: Optional[_AgentContent] = None
 
 
 class _BaseCallbackManagerInitWrapper:
@@ -154,6 +162,11 @@ class OpenTelemetryCallbackHandler(BaseCallbackHandler):
         self._set_llm_request_span_attributes(
             span, kwargs, serialized=serialized_kwargs, model_name=model_name, metadata=metadata
         )
+        self._update_agent_span_content(
+            run_id,
+            input_messages=conversation or None,
+            system_instructions=system_instructions or None,
+        )
 
     @skip_instrumentation_if_suppressed
     def on_llm_start(
@@ -182,13 +195,14 @@ class OpenTelemetryCallbackHandler(BaseCallbackHandler):
         self._set_langgraph_span_attributes(span, metadata)
         self._set_span_attribute(span, GEN_AI_PROVIDER_NAME, provider)
         self._set_span_attribute(span, GEN_AI_OPERATION_NAME, GenAiOperationNameValues.TEXT_COMPLETION.value)
-        self._set_span_attribute(
-            span,
-            GEN_AI_INPUT_MESSAGES,
-            serialize_to_json_string([{"role": "user", "parts": [{"type": "text", "content": p}]} for p in prompts]),
-        )
+        input_messages = [{"role": "user", "parts": [{"type": "text", "content": p}]} for p in prompts]
+        self._set_span_attribute(span, GEN_AI_INPUT_MESSAGES, serialize_to_json_string(input_messages))
         self._set_llm_request_span_attributes(
             span, kwargs, serialized=serialized_kwargs, model_name=model_name, metadata=metadata
+        )
+        self._update_agent_span_content(
+            run_id,
+            input_messages=input_messages or None,
         )
 
     @skip_instrumentation_if_suppressed
@@ -223,6 +237,7 @@ class OpenTelemetryCallbackHandler(BaseCallbackHandler):
         if response.generations:
             output_messages = self._format_lc_llm_output(response.generations)
             self._set_span_attribute(span, GEN_AI_OUTPUT_MESSAGES, serialize_to_json_string(output_messages))
+            self._update_agent_span_content(run_id, output_messages=output_messages or None)
             finish_reasons = [
                 self._extract_finish_reason(getattr(gen, "message", None), getattr(gen, "generation_info", None))
                 for batch in response.generations
@@ -360,7 +375,8 @@ class OpenTelemetryCallbackHandler(BaseCallbackHandler):
         span: Span = self._start_span(run_id, parent_run_id, span_name)
 
         self._set_langgraph_span_attributes(span, metadata)
-        self._set_span_attribute(span, GEN_AI_PROVIDER_NAME, provider)
+        if not is_agent_chain:
+            self._set_span_attribute(span, GEN_AI_PROVIDER_NAME, provider)
         if is_agent_chain:
             self._set_span_attribute(span, GEN_AI_OPERATION_NAME, GenAiOperationNameValues.INVOKE_AGENT.value)
         if is_workflow_chain:
@@ -368,13 +384,22 @@ class OpenTelemetryCallbackHandler(BaseCallbackHandler):
             self._set_span_attribute(span, GEN_AI_WORKFLOW_NAME, name)
 
         if is_agent_chain or is_workflow_chain:
+            if is_agent_chain:
+                entry = self._safe_get_owned_span(run_id)
+                if entry:
+                    entry.agent_content = _AgentContent()
             payload = inputs.get("messages") or inputs.get("input") if isinstance(inputs, dict) else None
             if payload:
-                _, conversation = self._format_lc_messages(
+                system_instructions, conversation = self._format_lc_messages(
                     [convert_to_messages([payload] if isinstance(payload, str) else payload)]
                 )
                 if conversation:
                     self._set_span_attribute(span, GEN_AI_INPUT_MESSAGES, serialize_to_json_string(conversation))
+                self._update_agent_span_content(
+                    run_id,
+                    input_messages=conversation or None,
+                    system_instructions=system_instructions or None,
+                )
         self._set_span_attribute(span, GEN_AI_AGENT_NAME, agent_name)
 
     @skip_instrumentation_if_suppressed
@@ -393,6 +418,10 @@ class OpenTelemetryCallbackHandler(BaseCallbackHandler):
                 GenAiOperationNameValues.INVOKE_WORKFLOW.value,
             )
         )
+        is_agent_span = GenAiOperationNameValues.INVOKE_AGENT.value in getattr(span, "name", "")
+        if entry.agent_content is not None and is_agent_span:
+            self._set_agent_span_content(span, entry.agent_content)
+
         if payload and is_agent_or_workflow_span:
             messages = convert_to_messages([payload] if isinstance(payload, str) else payload)
             _, conversation = self._format_lc_messages([messages])
@@ -927,7 +956,15 @@ class OpenTelemetryCallbackHandler(BaseCallbackHandler):
             span = self.tracer.start_span(span_name, kind=kind)
 
         token = context.attach(set_span_in_context(span))
-        self.run_id_to_span_map.put(run_id, _SpanEntry(run_id=run_id, span=span, token=token))
+        self.run_id_to_span_map.put(
+            run_id,
+            _SpanEntry(
+                run_id=run_id,
+                span=span,
+                token=token,
+                agent_content=parent_entry.agent_content if parent_entry else None,
+            ),
+        )
         return span
 
     def _end_span(self, run_id: UUID) -> None:
@@ -997,6 +1034,33 @@ class OpenTelemetryCallbackHandler(BaseCallbackHandler):
                 return provider
 
         return None
+
+    def _update_agent_span_content(
+        self,
+        run_id: UUID,
+        input_messages: Optional[list[dict[str, Any]]] = None,
+        output_messages: Optional[list[dict[str, Any]]] = None,
+        system_instructions: Optional[list[dict[str, Any]]] = None,
+    ) -> None:
+        """Collect the first input, latest output, and system instructions for the agent span."""
+        entry = self._safe_get_span(run_id)
+        content = entry.agent_content if entry else None
+        if content is None:
+            return
+        content.input_messages = first_not_none(content.input_messages, input_messages)
+        content.system_instructions = first_not_none(content.system_instructions, system_instructions)
+        content.output_messages = first_not_none(output_messages, content.output_messages)
+
+    def _set_agent_span_content(self, span: Span, content: _AgentContent) -> None:
+        """Set collected content on the internal agent span."""
+        if content.system_instructions:
+            self._set_span_attribute(
+                span, GEN_AI_SYSTEM_INSTRUCTIONS, serialize_to_json_string(content.system_instructions)
+            )
+        if content.input_messages:
+            self._set_span_attribute(span, GEN_AI_INPUT_MESSAGES, serialize_to_json_string(content.input_messages))
+        if content.output_messages:
+            self._set_span_attribute(span, GEN_AI_OUTPUT_MESSAGES, serialize_to_json_string(content.output_messages))
 
     def _safe_get_span(self, run_id: Optional[UUID]) -> Optional[_SpanEntry]:
         """Return the span entry mapped to a run, including entries inherited by skipped runs."""

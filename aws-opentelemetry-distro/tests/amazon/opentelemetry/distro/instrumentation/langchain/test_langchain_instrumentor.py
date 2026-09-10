@@ -827,6 +827,230 @@ class TestLangChainInstrumentor(TestCase):
         )
         self.assertFalse(any("Runnable" in span.name for span in spans))
 
+    def test_multi_agent_lazily_created_input_populates_agent_spans(self):
+        if not create_agent:
+            self.skipTest("langchain create_agent is not available")
+
+        try:
+            from langchain_aws import ChatBedrockConverse
+        except ImportError:
+            self.skipTest("langchain-aws is not available")
+
+        try:
+            from langchain.agents.middleware import AgentState, before_model
+        except ImportError:
+            self.skipTest("langchain agent middleware is not available")
+
+        # Dynamic prompts, state transforms, and multi-agent handoffs commonly materialize input after the agent starts.
+        class LazyAgentState(AgentState):
+            pending_input: str
+
+        @before_model(state_schema=LazyAgentState)
+        def materialize_input(state, _runtime):
+            if not state["messages"]:
+                return {"messages": [HumanMessage(content=state["pending_input"])]}
+            return None
+
+        model_kwargs = {
+            "model": "anthropic.claude-fable-5",
+            "region_name": "us-east-1",
+            "aws_access_key_id": "fake-key",
+            "aws_secret_access_key": "fake-key",
+        }
+        worker_specs = [
+            ("WorkerAgent1", "delegate_to_worker_1", "calculate_worker_1", "Add 11 and 101.", 11, 101, "112"),
+            ("WorkerAgent2", "delegate_to_worker_2", "calculate_worker_2", "Add 22 and 202.", 22, 202, "224"),
+            ("WorkerAgent3", "delegate_to_worker_3", "calculate_worker_3", "Add 33 and 303.", 33, 303, "336"),
+            ("WorkerAgent4", "delegate_to_worker_4", "calculate_worker_4", "Add 44 and 404.", 44, 404, "448"),
+        ]
+        worker_llms = [ChatBedrockConverse(**model_kwargs) for _ in worker_specs]
+        supervisor_llm = ChatBedrockConverse(**model_kwargs)
+
+        def create_calculator_tool(tool_name):
+            def calculate(left: int, right: int) -> int:
+                return left + right
+
+            return StructuredTool.from_function(
+                func=calculate,
+                name=tool_name,
+                description="Add two numbers.",
+            )
+
+        def create_delegate_tool(worker, tool_name):
+            def delegate(query: str) -> str:
+                result = worker.invoke({"messages": [], "pending_input": query})
+                return result["messages"][-1].text
+
+            return StructuredTool.from_function(
+                func=delegate,
+                name=tool_name,
+                description="Delegate a runtime-created query to a worker agent.",
+            )
+
+        workers = [
+            create_agent(
+                worker_llm,
+                tools=[create_calculator_tool(calculator_tool_name)],
+                system_prompt=f"Worker {index} system instruction {index * 1000}.",
+                middleware=[materialize_input],
+                name=agent_name,
+            )
+            for index, (worker_llm, (agent_name, _, calculator_tool_name, _, _, _, _)) in enumerate(
+                zip(worker_llms, worker_specs), start=1
+            )
+        ]
+        supervisor = create_agent(
+            supervisor_llm,
+            tools=[
+                create_delegate_tool(worker, delegate_tool_name)
+                for worker, (_, delegate_tool_name, _, _, _, _, _) in zip(workers, worker_specs)
+            ],
+            system_prompt="Supervisor system instruction 9000.",
+            middleware=[materialize_input],
+            name="SupervisorAgent",
+        )
+
+        def invoke_llm(client):
+            for worker_llm in worker_llms:
+                worker_llm.client = client
+            supervisor_llm.client = client
+            supervisor.invoke(
+                {
+                    "messages": [],
+                    "pending_input": "Run numbered calculations 1 through 4.",
+                }
+            )
+
+        def tool_response(tool_name, tool_input, tool_use_id):
+            return {
+                "output": {
+                    "message": {
+                        "role": "assistant",
+                        "content": [
+                            {
+                                "toolUse": {
+                                    "toolUseId": tool_use_id,
+                                    "name": tool_name,
+                                    "input": tool_input,
+                                }
+                            }
+                        ],
+                    }
+                },
+                "stopReason": "tool_use",
+                "usage": {"inputTokens": 10, "outputTokens": 5, "totalTokens": 15},
+                "metrics": {"latencyMs": 1},
+            }
+
+        def text_response(text):
+            return {
+                "output": {"message": {"role": "assistant", "content": [{"text": text}]}},
+                "stopReason": "end_turn",
+                "usage": {"inputTokens": 10, "outputTokens": 20, "totalTokens": 30},
+                "metrics": {"latencyMs": 1},
+            }
+
+        responses = []
+        for index, (_, delegate_tool_name, calculator_tool_name, query, left, right, output) in enumerate(
+            worker_specs, start=1
+        ):
+            responses.extend(
+                [
+                    tool_response(delegate_tool_name, {"query": query}, f"delegate-call-{index}"),
+                    tool_response(
+                        calculator_tool_name,
+                        {"left": left, "right": right},
+                        f"calculator-call-{index}",
+                    ),
+                    text_response(f"Worker {index} final answer: {output}."),
+                ]
+            )
+        responses.append(text_response("Supervisor final answer: 112, 224, 336, 448."))
+
+        call_mock_llm(
+            "bedrock",
+            invoke_llm_callback=invoke_llm,
+            responses=responses,
+        )
+
+        spans = self.span_exporter.get_finished_spans()
+        supervisor_span = next(span for span in spans if span.name == "invoke_agent SupervisorAgent")
+        worker_spans = {
+            agent_name: next(span for span in spans if span.name == f"invoke_agent {agent_name}")
+            for agent_name, _, _, _, _, _, _ in worker_specs
+        }
+        tool_spans = [
+            span
+            for span in spans
+            if span.attributes.get(GEN_AI_OPERATION_NAME) == GenAiOperationNameValues.EXECUTE_TOOL.value
+        ]
+
+        def messages(span, attribute, schema_name):
+            messages = json.loads(span.attributes[attribute])
+            validate_otel_genai_schema(messages, schema_name)
+            return messages
+
+        def system_instructions(span):
+            instructions = json.loads(span.attributes[GEN_AI_SYSTEM_INSTRUCTIONS])
+            validate_otel_genai_schema(instructions, "gen-ai-system-instructions")
+            return instructions
+
+        self.assertEqual(
+            messages(supervisor_span, GEN_AI_INPUT_MESSAGES, "gen-ai-input-messages"),
+            [
+                {
+                    "role": "user",
+                    "parts": [{"type": "text", "content": "Run numbered calculations 1 through 4."}],
+                }
+            ],
+        )
+        self.assertEqual(
+            messages(supervisor_span, GEN_AI_OUTPUT_MESSAGES, "gen-ai-output-messages"),
+            [
+                {
+                    "role": "assistant",
+                    "parts": [{"type": "text", "content": "Supervisor final answer: 112, 224, 336, 448."}],
+                    "finish_reason": "stop",
+                }
+            ],
+        )
+        self.assertEqual(
+            system_instructions(supervisor_span),
+            [{"type": "text", "content": "Supervisor system instruction 9000."}],
+        )
+
+        for index, (agent_name, delegate_tool_name, _, expected_input, _, _, result) in enumerate(
+            worker_specs, start=1
+        ):
+            worker_span = worker_spans[agent_name]
+            self.assertEqual(
+                messages(worker_span, GEN_AI_INPUT_MESSAGES, "gen-ai-input-messages"),
+                [{"role": "user", "parts": [{"type": "text", "content": expected_input}]}],
+            )
+            self.assertEqual(
+                messages(worker_span, GEN_AI_OUTPUT_MESSAGES, "gen-ai-output-messages"),
+                [
+                    {
+                        "role": "assistant",
+                        "parts": [{"type": "text", "content": f"Worker {index} final answer: {result}."}],
+                        "finish_reason": "stop",
+                    }
+                ],
+            )
+            self.assertEqual(
+                system_instructions(worker_span),
+                [{"type": "text", "content": f"Worker {index} system instruction {index * 1000}."}],
+            )
+            delegate_span = next(
+                span for span in tool_spans if span.attributes.get(GEN_AI_TOOL_NAME) == delegate_tool_name
+            )
+            self.assertEqual(worker_span.parent.span_id, delegate_span.context.span_id)
+
+        self.assertEqual(
+            {span.context.trace_id for span in (supervisor_span, *worker_spans.values(), *tool_spans)},
+            {supervisor_span.context.trace_id},
+        )
+
     def test_nested_raw_stategraph_uses_pregel_fallback_under_explicit_agent(self):
         try:
             from langgraph.graph import END, START, MessagesState, StateGraph
@@ -1498,10 +1722,16 @@ class TestLangChainInstrumentor(TestCase):
 
         spans = self.span_exporter.get_finished_spans()
         agent_span = next((s for s in spans if "invoke_agent" in s.name), None)
+        chat_span = next(
+            s for s in spans if s.attributes.get(GEN_AI_OPERATION_NAME) == GenAiOperationNameValues.CHAT.value
+        )
         self.assertIsNotNone(agent_span)
-        self.assertEqual(agent_span.attributes[GEN_AI_REQUEST_MODEL], "test-model-id")
-        self.assertEqual(agent_span.attributes[GEN_AI_REQUEST_TEMPERATURE], 0.7)
-        self.assertEqual(agent_span.attributes[GEN_AI_PROVIDER_NAME], "openai")
+        self.assertEqual(chat_span.attributes[GEN_AI_REQUEST_MODEL], "test-model-id")
+        self.assertEqual(chat_span.attributes[GEN_AI_PROVIDER_NAME], "openai")
+        self.assertEqual(chat_span.attributes[GEN_AI_REQUEST_TOP_P], 0.9)
+        self.assertIsNone(agent_span.attributes.get(GEN_AI_REQUEST_MODEL))
+        self.assertIsNone(agent_span.attributes.get(GEN_AI_PROVIDER_NAME))
+        self.assertIsNone(agent_span.attributes.get(GEN_AI_REQUEST_TOP_P))
 
     def test_text_completion_propagates_to_parent_agent(self):
         if not self.HAS_LEGACY_LANGCHAIN:
@@ -1521,8 +1751,15 @@ class TestLangChainInstrumentor(TestCase):
 
         spans = self.span_exporter.get_finished_spans()
         agent_span = next((s for s in spans if "invoke_agent" in s.name), None)
+        llm_span = next(
+            s
+            for s in spans
+            if s.attributes.get(GEN_AI_OPERATION_NAME) == GenAiOperationNameValues.TEXT_COMPLETION.value
+        )
         self.assertIsNotNone(agent_span)
-        self.assertIsNotNone(agent_span.attributes.get(GEN_AI_REQUEST_MODEL))
+        self.assertIsNotNone(llm_span.attributes.get(GEN_AI_REQUEST_MODEL))
+        self.assertIsNone(agent_span.attributes.get(GEN_AI_REQUEST_MODEL))
+        self.assertIsNone(agent_span.attributes.get(GEN_AI_PROVIDER_NAME))
 
     def test_create_agent_detects_agent_with_and_without_name(self):
         if create_agent:
