@@ -14,7 +14,7 @@ from opentelemetry.sdk.trace import ReadableSpan, Span, SpanProcessor
 from opentelemetry.util import types
 
 ENV_ADOT_REDACT_SPAN_ATTRIBUTES = "ADOT_REDACT_SPAN_ATTRIBUTES"
-REDACTED_VALUE = "REDACTED"
+REDACTED_VALUE = "[REDACTED]"
 
 
 class AttributeRedactingSpanProcessor(SpanProcessor):
@@ -24,7 +24,7 @@ class AttributeRedactingSpanProcessor(SpanProcessor):
     Attribute names can be supplied to the constructor or through the
     ``ADOT_REDACT_SPAN_ATTRIBUTES`` environment variable as a comma-separated
     list. Each entry can be an exact attribute name or contain ``*`` wildcards.
-    Matching attribute values are replaced with ``REDACTED`` in place while
+    Matching attribute values are replaced with ``[REDACTED]`` in place while
     attribute names and non-matching values remain unchanged.
 
     Examples:
