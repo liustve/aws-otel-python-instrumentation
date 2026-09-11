@@ -12,6 +12,8 @@ If your change does not need a CHANGELOG entry, add the "skip changelog" label t
 
 ## Unreleased
 
+- fix: restrict native GenAI instrumentations to supported dependency major versions
+  ([#884](https://github.com/aws-observability/aws-otel-python-instrumentation/pull/884))
 - fix(langchain): propagate first input, last output, and system instructions to internal agent spans
   ([#889](https://github.com/aws-observability/aws-otel-python-instrumentation/pull/889))
 - feat: redact span, span event, and span link attributes via ADOT_REDACT_SPAN_ATTRIBUTES
