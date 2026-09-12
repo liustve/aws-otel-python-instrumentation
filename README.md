@@ -54,10 +54,10 @@ dependencies.
       <td><code>AWS_GENAI_CONTENT_EXTRACTION_OPT_OUT</code></td>
       <td>
         <p><strong>We strongly recommend setting this variable to <code>true</code> to keep captured content in span attributes.</strong> The current default is <code>false</code>: captured content is removed from span attributes and routed to a separate logs pipeline. If that logs pipeline is disabled, the content is discarded.</p>
-        <div class="markdown-alert markdown-alert-note">
-          <p class="markdown-alert-title">ⓘ Note</p>
+        <blockquote>
+          <p><strong>Note</strong></p>
           <p>In a future release, routing captured content to the separate logs pipeline will become opt-in.</p>
-        </div>
+        </blockquote>
       </td>
     </tr>
     <tr>
@@ -70,28 +70,29 @@ dependencies.
         <pre><code>export ADOT_REDACT_SPAN_ATTRIBUTES='gen_ai.input.messages,gen_ai.output.messages'</code></pre>
         <p>To redact multiple attributes matching a pattern:</p>
         <pre><code>export ADOT_REDACT_SPAN_ATTRIBUTES='llm.input_messages.*,llm.output_messages.*'</code></pre>
-        <div class="markdown-alert markdown-alert-warning">
-          <p class="markdown-alert-title">⚠ Warning</p>
+        <blockquote>
+          <p><strong>Warning</strong></p>
           <p>Redaction occurs in-process within the agent, before telemetry is exported. This may affect other integrations that rely on these attribute values.</p>
-        </div>
+        </blockquote>
       </td>
     </tr>
     <tr>
       <td>
         <code>ADOT_GENAI_INSTRUMENTATION</code>
-        <div class="markdown-alert markdown-alert-note">
-          <p class="markdown-alert-title">ⓘ Note</p>
+        <br>
+        <blockquote>
+          <p><strong>Note</strong></p>
           <p><code>AWS_AGENTIC_INSTRUMENTATION</code> is the legacy environment variable name and remains supported as a fallback when <code>ADOT_GENAI_INSTRUMENTATION</code> is not set.</p>
-        </div>
+        </blockquote>
       </td>
       <td>
         <p>Set to <code>disabled</code> to disable all of the above instrumentations. Set to <code>enabled</code> to force all of the above instrumentations to load.</p>
-        <div class="markdown-alert markdown-alert-note">
-          <p class="markdown-alert-title">ⓘ Note</p>
+        <blockquote>
+          <p><strong>Note</strong></p>
           <p>When agent observability is enabled (<code>AGENT_OBSERVABILITY_ENABLED=true</code>), instrumentation is skipped when a conflicting third-party instrumentation is detected for the same framework.</p>
           <p>You may set <code>ADOT_GENAI_INSTRUMENTATION=disabled</code> to disable all of the above instrumentations if you are using another instrumentation source and automatic detection does not work. If another third-party instrumentation is installed, you should uninstall it or otherwise resolve any dependency conflicts before using the above instrumentations.</p>
           <p>You may set <code>ADOT_GENAI_INSTRUMENTATION=enabled</code> to force the above instrumentations to load. We recommend that you do not use this setting because both instrumentations may run and produce duplicate or inconsistent telemetry.</p>
-        </div>
+        </blockquote>
       </td>
     </tr>
   </tbody>
