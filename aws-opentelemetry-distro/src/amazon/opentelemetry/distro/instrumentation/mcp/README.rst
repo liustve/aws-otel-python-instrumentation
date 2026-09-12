@@ -36,12 +36,20 @@ No application tracing code or MCP hook registration is required.
 Configuration
 -------------
 
-MCP instrumentation suppresses redundant HTTP client and ASGI spans by default.
-Set ``OTEL_MCP_SUPPRESS_HTTP_INSTRUMENTATION=false`` to retain those spans:
+.. note::
 
-.. code-block:: console
+    MCP instrumentation suppresses redundant HTTP client and ASGI spans by
+    default. Set
+    ``ADOT_INSTRUMENTATION_MCP_SUPPRESS_HTTP_INSTRUMENTATION=false`` to retain
+    those spans:
 
-    export OTEL_MCP_SUPPRESS_HTTP_INSTRUMENTATION=false
+    .. code-block:: console
+
+        export ADOT_INSTRUMENTATION_MCP_SUPPRESS_HTTP_INSTRUMENTATION=false
+
+    ``OTEL_MCP_SUPPRESS_HTTP_INSTRUMENTATION`` is the legacy environment
+    variable name and remains supported as a fallback when
+    ``ADOT_INSTRUMENTATION_MCP_SUPPRESS_HTTP_INSTRUMENTATION`` is not set.
 
 Disable the instrumentation
 ---------------------------

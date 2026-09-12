@@ -37,12 +37,15 @@ required.
 Configuration
 -------------
 
-Set ``ADOT_INSTRUMENTATION_OPENAI_AGENTS_DISABLE_TRACE_EXPORT=true`` to disable
-exporting traces to the OpenAI backend while retaining ADOT instrumentation:
+.. note::
 
-.. code-block:: console
+    Set ``ADOT_INSTRUMENTATION_OPENAI_AGENTS_DISABLE_TRACE_EXPORT=true`` to
+    disable exporting traces to the OpenAI backend while retaining ADOT
+    instrumentation:
 
-    export ADOT_INSTRUMENTATION_OPENAI_AGENTS_DISABLE_TRACE_EXPORT=true
+    .. code-block:: console
+
+        export ADOT_INSTRUMENTATION_OPENAI_AGENTS_DISABLE_TRACE_EXPORT=true
 
 Disable the instrumentation
 ---------------------------
