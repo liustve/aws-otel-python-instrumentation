@@ -158,29 +158,26 @@ class TestOpenAIAgentsInstrumentor(unittest.TestCase):
         self.assertIs(litellm.acompletion, original_acompletion)
 
     def test_disable_openai_trace_export_restores_previous_processors(self):
-        existing_processor = MagicMock()
-        tracing.set_trace_processors([existing_processor])
+        cases = [
+            ("kwarg", {"disable_openai_trace_export": True}, {}),
+            ("environment", {}, {ADOT_INSTRUMENTATION_OPENAI_AGENTS_DISABLE_TRACE_EXPORT: "TrUe"}),
+        ]
+        for mode, instrument_kwargs, environment in cases:
+            with self.subTest(mode=mode), patch.dict(os.environ, {}, clear=False):
+                os.environ.pop(ADOT_INSTRUMENTATION_OPENAI_AGENTS_DISABLE_TRACE_EXPORT, None)
+                os.environ.update(environment)
+                existing_processor = MagicMock()
+                tracing.set_trace_processors([existing_processor])
 
-        self.instrumentor.instrument(disable_openai_trace_export=True, skip_dep_check=True)
-        processor = self.instrumentor._processor  # pylint: disable=protected-access
-        current = tracing.get_trace_provider()._multi_processor._processors  # pylint: disable=protected-access
-        self.assertEqual(current, (processor,))
+                self.instrumentor.instrument(skip_dep_check=True, **instrument_kwargs)
+                processor = self.instrumentor._processor  # pylint: disable=protected-access
+                current = tracing.get_trace_provider()._multi_processor._processors  # pylint: disable=protected-access
+                self.assertEqual(current, (processor,))
 
-        self.instrumentor.uninstrument()
-        current = tracing.get_trace_provider()._multi_processor._processors  # pylint: disable=protected-access
-        self.assertEqual(current, (existing_processor,))
-        self.assertIsNone(self.instrumentor._processor)  # pylint: disable=protected-access
-
-    def test_disable_openai_trace_export_with_env_var(self):
-        existing_processor = MagicMock()
-        tracing.set_trace_processors([existing_processor])
-
-        with patch.dict(os.environ, {ADOT_INSTRUMENTATION_OPENAI_AGENTS_DISABLE_TRACE_EXPORT: "TrUe"}):
-            self.instrumentor.instrument(skip_dep_check=True)
-
-        processor = self.instrumentor._processor  # pylint: disable=protected-access
-        current = tracing.get_trace_provider()._multi_processor._processors  # pylint: disable=protected-access
-        self.assertEqual(current, (processor,))
+                self.instrumentor.uninstrument()
+                current = tracing.get_trace_provider()._multi_processor._processors  # pylint: disable=protected-access
+                self.assertEqual(current, (existing_processor,))
+                self.assertIsNone(self.instrumentor._processor)  # pylint: disable=protected-access
 
     def test_openai_trace_export_produces_no_http_spans(self):
         exporter = InMemorySpanExporter()

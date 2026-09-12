@@ -496,13 +496,13 @@ class TestMcpInstrumentorInProcess(McpInstrumentorTestBase):
 
     def test_http_span_suppression(self):
         cases = [
-            ({ADOT_INSTRUMENTATION_MCP_SUPPRESS_HTTP_INSTRUMENTATION: "false"}, True, "adot=false"),
-            ({ADOT_INSTRUMENTATION_MCP_SUPPRESS_HTTP_INSTRUMENTATION: "true"}, False, "adot=true"),
-            ({OTEL_MCP_SUPPRESS_HTTP_INSTRUMENTATION: "false"}, True, "deprecated=false"),
+            ({ADOT_INSTRUMENTATION_MCP_SUPPRESS_HTTP_INSTRUMENTATION: "false"}, True, "adot-false"),
+            ({ADOT_INSTRUMENTATION_MCP_SUPPRESS_HTTP_INSTRUMENTATION: "true"}, False, "adot-true"),
+            ({OTEL_MCP_SUPPRESS_HTTP_INSTRUMENTATION: "false"}, True, "deprecated-false"),
             ({}, False, "default"),
         ]
-        for patch_env, expect_post_spans, label in cases:
-            with self.subTest(label):
+        for patch_env, expect_post_spans, mode in cases:
+            with self.subTest(mode=mode):
                 self.instrumentor.uninstrument()
                 self.span_exporter.clear()
 

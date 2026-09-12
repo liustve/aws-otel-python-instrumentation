@@ -69,7 +69,6 @@ from logging import ERROR, Logger, getLogger
 from amazon.opentelemetry.distro._utils import (
     OTEL_METRICS_ADD_APPLICATION_SIGNALS_DIMENSIONS,
     get_aws_region,
-    get_env_with_deprecated_alias,
     is_agent_observability_enabled,
     is_installed,
 )
@@ -266,7 +265,6 @@ class AwsOpenTelemetryDistro(OpenTelemetryDistro):
         """
         if is_agent_observability_enabled() and self._should_skip_instrumentor(entry_point):
             return
-
         super().load_instrumentor(entry_point, **kwargs)
 
     @staticmethod
@@ -275,16 +273,16 @@ class AwsOpenTelemetryDistro(OpenTelemetryDistro):
         if not is_native:
             return False
 
-        raw_mode = get_env_with_deprecated_alias(
-            ADOT_GENAI_INSTRUMENTATION,
-            AWS_AGENTIC_INSTRUMENTATION,
-            "auto",
-        )
+        mode_variable = ADOT_GENAI_INSTRUMENTATION
+        raw_mode = os.environ.get(mode_variable)
+        if raw_mode is None:
+            mode_variable = AWS_AGENTIC_INSTRUMENTATION
+            raw_mode = os.environ.get(mode_variable, "auto")
         mode = raw_mode.lower()
         if mode not in ("auto", "enabled", "disabled"):
             _logger.warning(
                 "Unknown %s=%r — falling back to 'auto'. Valid values: auto, enabled, disabled.",
-                ADOT_GENAI_INSTRUMENTATION,
+                mode_variable,
                 raw_mode,
             )
             mode = "auto"
@@ -292,7 +290,7 @@ class AwsOpenTelemetryDistro(OpenTelemetryDistro):
         if mode == "enabled":
             return False
         if mode == "disabled":
-            _logger.debug("Skipping %s: ADOT_GENAI_INSTRUMENTATION=disabled", entry_point.name)
+            _logger.debug("Skipping %s: %s=disabled", entry_point.name, mode_variable)
             return True
 
         # mode == "auto": skip the native side if a same-library third-party is registered.

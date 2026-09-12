@@ -564,8 +564,15 @@ class TestAwsOpenTelemetryDistro(TestCase):
         """aws_langchain should load when ADOT_GENAI_INSTRUMENTATION=enabled even if third-party registered."""
         ep = self._make_ep("aws_langchain", "aws-opentelemetry-distro")
         third_party = [self._make_ep("langchain", "openinference-instrumentation-langchain")]
-        mock_super = self._load_instrumentor_with_agent(ep, third_party_eps=third_party, mode="enabled")
-        mock_super.assert_called_once_with(ep)
+        for mode_variable in (ADOT_GENAI_INSTRUMENTATION, AWS_AGENTIC_INSTRUMENTATION):
+            with self.subTest(mode_variable=mode_variable):
+                mock_super = self._load_instrumentor_with_agent(
+                    ep,
+                    third_party_eps=third_party,
+                    mode="enabled",
+                    mode_variable=mode_variable,
+                )
+                mock_super.assert_called_once_with(ep)
 
     def test_load_third_party_when_mode_enabled(self):
         """Third-party langchain still loads under mode=enabled — only the aws_* side is governed."""
@@ -612,19 +619,6 @@ class TestAwsOpenTelemetryDistro(TestCase):
         # Auto — same as unset, skip native because third-party covers it
         mock_super = self._load_instrumentor_with_agent(ep, third_party_eps=third_party, mode="Auto")
         mock_super.assert_not_called()
-
-    def test_deprecated_agentic_instrumentation_name_still_works(self):
-        ep = self._make_ep("aws_langchain", "aws-opentelemetry-distro")
-        third_party = [self._make_ep("langchain", "openinference-instrumentation-langchain")]
-
-        mock_super = self._load_instrumentor_with_agent(
-            ep,
-            third_party_eps=third_party,
-            mode="enabled",
-            mode_variable=AWS_AGENTIC_INSTRUMENTATION,
-        )
-
-        mock_super.assert_called_once_with(ep)
 
     def test_load_regular_instrumentor(self):
         """Regular instrumentors should always be loaded."""

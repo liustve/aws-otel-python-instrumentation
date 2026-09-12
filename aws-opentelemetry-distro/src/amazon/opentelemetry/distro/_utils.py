@@ -14,30 +14,6 @@ AGENT_OBSERVABILITY_ENABLED = "AGENT_OBSERVABILITY_ENABLED"
 OTEL_METRICS_ADD_APPLICATION_SIGNALS_DIMENSIONS = "OTEL_METRICS_ADD_APPLICATION_SIGNALS_DIMENSIONS"
 AWS_GENAI_CONTENT_EXTRACTION_OPT_OUT = "AWS_GENAI_CONTENT_EXTRACTION_OPT_OUT"
 
-_DEPRECATED_ENVIRONMENT_VARIABLES_WARNED = set()
-
-
-def get_env_with_deprecated_alias(name: str, deprecated_name: str, default: Optional[str] = None) -> Optional[str]:
-    """Return an environment variable while supporting a deprecated alias.
-
-    The preferred variable takes precedence when both names are set.
-    """
-    value = os.environ.get(name)
-    deprecated_value = os.environ.get(deprecated_name)
-
-    if deprecated_value is not None and deprecated_name not in _DEPRECATED_ENVIRONMENT_VARIABLES_WARNED:
-        if value is None:
-            _logger.warning("%s is deprecated; use %s instead.", deprecated_name, name)
-        else:
-            _logger.warning("%s is deprecated and ignored because %s is set.", deprecated_name, name)
-        _DEPRECATED_ENVIRONMENT_VARIABLES_WARNED.add(deprecated_name)
-
-    if value is not None:
-        return value
-    if deprecated_value is not None:
-        return deprecated_value
-    return default
-
 
 def is_installed(req: str) -> bool:
     """Is the given required package installed?"""

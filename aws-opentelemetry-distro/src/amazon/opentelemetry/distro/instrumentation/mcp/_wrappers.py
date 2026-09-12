@@ -8,7 +8,7 @@ from contextvars import Token
 from typing import Any, Callable, Coroutine, Dict, Optional, Tuple
 from urllib.parse import urlparse
 
-from amazon.opentelemetry.distro._utils import get_env_with_deprecated_alias, is_agent_observability_enabled
+from amazon.opentelemetry.distro._utils import is_agent_observability_enabled
 from amazon.opentelemetry.distro.instrumentation.common.instrumentation_utils import to_tool_attribute_value
 from opentelemetry import context, trace
 from opentelemetry.instrumentation.utils import suppress_http_instrumentation
@@ -60,14 +60,10 @@ class McpWrapper:
     def __init__(self, tracer: trace.Tracer, **kwargs: Any) -> None:
         self._tracer = tracer
         self._propagators = kwargs.get("propagators") or get_global_textmap()
-        self._should_suppress_http_spans = (
-            get_env_with_deprecated_alias(
-                ADOT_INSTRUMENTATION_MCP_SUPPRESS_HTTP_INSTRUMENTATION,
-                OTEL_MCP_SUPPRESS_HTTP_INSTRUMENTATION,
-                "true",
-            ).lower()
-            == "true"
-        )
+        suppress_http_instrumentation = os.environ.get(ADOT_INSTRUMENTATION_MCP_SUPPRESS_HTTP_INSTRUMENTATION)
+        if suppress_http_instrumentation is None:
+            suppress_http_instrumentation = os.environ.get(OTEL_MCP_SUPPRESS_HTTP_INSTRUMENTATION, "true")
+        self._should_suppress_http_spans = suppress_http_instrumentation.lower() == "true"
         self._agent_observability_enabled = is_agent_observability_enabled()
 
     def _should_suppress_mcp_span(self, message: Any) -> bool:
