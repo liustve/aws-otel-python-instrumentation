@@ -13,8 +13,7 @@ from opentelemetry import trace
 from opentelemetry.instrumentation.instrumentor import BaseInstrumentor  # type: ignore
 from opentelemetry.instrumentation.utils import suppress_http_instrumentation
 
-# Opt-in control for replacing the OpenAI Agents SDK trace processors with the
-# ADOT processor, preventing export to the OpenAI trace backend.
+# Disables exporting traces to the OpenAI backend when set to true.
 ADOT_INSTRUMENTATION_OPENAI_AGENTS_DISABLE_TRACE_EXPORT = "ADOT_INSTRUMENTATION_OPENAI_AGENTS_DISABLE_TRACE_EXPORT"
 
 
