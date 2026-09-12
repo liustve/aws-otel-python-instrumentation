@@ -3,10 +3,11 @@
 
 import asyncio
 import json
+import os
 import unittest
 from importlib.metadata import entry_points
 from types import SimpleNamespace
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import litellm
 from agents import Agent, ModelSettings, OpenAIChatCompletionsModel, RunConfig, Runner, function_tool, tracing
@@ -18,7 +19,10 @@ from litellm.litellm_core_utils.streaming_handler import CustomStreamWrapper
 from openai import NOT_GIVEN, Omit
 from pydantic import BaseModel
 
-from amazon.opentelemetry.distro.instrumentation.openai_agents import OpenAIAgentsInstrumentor
+from amazon.opentelemetry.distro.instrumentation.openai_agents import (
+    ADOT_INSTRUMENTATION_OPENAI_AGENTS_DISABLE_TRACE_EXPORT,
+    OpenAIAgentsInstrumentor,
+)
 from amazon.opentelemetry.distro.instrumentation.openai_agents._gen_ai_context_capture import GenAICapturingContext
 from amazon.opentelemetry.distro.instrumentation.openai_agents._processor import (
     GEN_AI_REQUEST_REASONING_LEVEL,
@@ -166,6 +170,17 @@ class TestOpenAIAgentsInstrumentor(unittest.TestCase):
         current = tracing.get_trace_provider()._multi_processor._processors  # pylint: disable=protected-access
         self.assertEqual(current, (existing_processor,))
         self.assertIsNone(self.instrumentor._processor)  # pylint: disable=protected-access
+
+    def test_disable_openai_trace_export_with_env_var(self):
+        existing_processor = MagicMock()
+        tracing.set_trace_processors([existing_processor])
+
+        with patch.dict(os.environ, {ADOT_INSTRUMENTATION_OPENAI_AGENTS_DISABLE_TRACE_EXPORT: "TrUe"}):
+            self.instrumentor.instrument(skip_dep_check=True)
+
+        processor = self.instrumentor._processor  # pylint: disable=protected-access
+        current = tracing.get_trace_provider()._multi_processor._processors  # pylint: disable=protected-access
+        self.assertEqual(current, (processor,))
 
     def test_openai_trace_export_produces_no_http_spans(self):
         exporter = InMemorySpanExporter()

@@ -121,10 +121,6 @@ ADOT_GENAI_INSTRUMENTATION = "ADOT_GENAI_INSTRUMENTATION"
 # Deprecated: use ADOT_GENAI_INSTRUMENTATION.
 AWS_AGENTIC_INSTRUMENTATION = "AWS_AGENTIC_INSTRUMENTATION"
 
-# Opt-in control for replacing the OpenAI Agents SDK trace processors with the
-# ADOT processor, preventing export to the OpenAI trace backend.
-ADOT_INSTRUMENTATION_OPENAI_AGENTS_DISABLE_TRACE_EXPORT = "ADOT_INSTRUMENTATION_OPENAI_AGENTS_DISABLE_TRACE_EXPORT"
-
 # Maps third-party instrumentor entry point names to their AWS native equivalents.
 # Used for mutual exclusion: only one side instruments each library at a time.
 _THIRDPARTY_TO_AWS_NATIVE = {
@@ -270,12 +266,6 @@ class AwsOpenTelemetryDistro(OpenTelemetryDistro):
         """
         if is_agent_observability_enabled() and self._should_skip_instrumentor(entry_point):
             return
-
-        if (
-            entry_point.name == "aws_openai_agents"
-            and os.environ.get(ADOT_INSTRUMENTATION_OPENAI_AGENTS_DISABLE_TRACE_EXPORT, "false").lower() == "true"
-        ):
-            kwargs["disable_openai_trace_export"] = True
 
         super().load_instrumentor(entry_point, **kwargs)
 

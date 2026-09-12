@@ -1,6 +1,7 @@
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+import os
 import sys
 from typing import Any, Collection
 
@@ -11,6 +12,10 @@ from amazon.opentelemetry.distro.version import __version__
 from opentelemetry import trace
 from opentelemetry.instrumentation.instrumentor import BaseInstrumentor  # type: ignore
 from opentelemetry.instrumentation.utils import suppress_http_instrumentation
+
+# Opt-in control for replacing the OpenAI Agents SDK trace processors with the
+# ADOT processor, preventing export to the OpenAI trace backend.
+ADOT_INSTRUMENTATION_OPENAI_AGENTS_DISABLE_TRACE_EXPORT = "ADOT_INSTRUMENTATION_OPENAI_AGENTS_DISABLE_TRACE_EXPORT"
 
 
 class OpenAIAgentsInstrumentor(BaseInstrumentor):  # type: ignore
@@ -76,7 +81,11 @@ class OpenAIAgentsInstrumentor(BaseInstrumentor):  # type: ignore
         # disables http spans created from spans sent OpenAI's tracing backend
         try_wrap("agents.tracing.processors", "BackendSpanExporter.export", _suppress_http_instrumentation)
 
-        if kwargs.get("disable_openai_trace_export"):
+        disable_openai_trace_export = (
+            kwargs.get("disable_openai_trace_export")
+            or os.environ.get(ADOT_INSTRUMENTATION_OPENAI_AGENTS_DISABLE_TRACE_EXPORT, "false").lower() == "true"
+        )
+        if disable_openai_trace_export:
             trace_provider = get_trace_provider()
             multi_processor = getattr(trace_provider, "_multi_processor", None)
             self._previous_processors = tuple(getattr(multi_processor, "_processors", ()))

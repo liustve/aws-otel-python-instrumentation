@@ -11,7 +11,6 @@ from unittest.mock import MagicMock, patch
 from amazon.opentelemetry.distro.aws_opentelemetry_configurator import APPLICATION_SIGNALS_ENABLED_CONFIG
 from amazon.opentelemetry.distro.aws_opentelemetry_distro import (
     ADOT_GENAI_INSTRUMENTATION,
-    ADOT_INSTRUMENTATION_OPENAI_AGENTS_DISABLE_TRACE_EXPORT,
     AWS_AGENTIC_INSTRUMENTATION,
     AwsOpenTelemetryDistro,
 )
@@ -64,7 +63,6 @@ class TestAwsOpenTelemetryDistro(TestCase):
             OTEL_EXPORTER_OTLP_METRICS_ENDPOINT,
             ADOT_GENAI_INSTRUMENTATION,
             AWS_AGENTIC_INSTRUMENTATION,
-            ADOT_INSTRUMENTATION_OPENAI_AGENTS_DISABLE_TRACE_EXPORT,
             "CREWAI_DISABLE_TELEMETRY",
         ]
 
@@ -640,14 +638,6 @@ class TestAwsOpenTelemetryDistro(TestCase):
         third_party = [self._make_ep("openai_agents", "openinference-instrumentation-openai-agents")]
         mock_super = self._load_instrumentor_with_agent(ep, third_party_eps=third_party)
         mock_super.assert_not_called()
-
-    def test_openai_agents_trace_export_can_be_disabled(self):
-        ep = self._make_ep("aws_openai_agents", "aws-opentelemetry-distro")
-        os.environ[ADOT_INSTRUMENTATION_OPENAI_AGENTS_DISABLE_TRACE_EXPORT] = "TrUe"
-
-        mock_super = self._load_instrumentor_with_agent(ep)
-
-        mock_super.assert_called_once_with(ep, disable_openai_trace_export=True)
 
     def _configure_with_agent_observability(self, region="us-west-2"):
         with patch("amazon.opentelemetry.distro.aws_opentelemetry_distro.OpenTelemetryDistro._configure"), patch(
