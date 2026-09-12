@@ -15,11 +15,11 @@ Features
 Installation
 ------------
 
-Install the ADOT distro and a supported MCP SDK version:
+Install the distribution and a supported MCP SDK version:
 
 .. code-block:: console
 
-    pip install aws-opentelemetry-distro "mcp>=1.10.0"
+    pip install aws-opentelemetry-distro "mcp>=1.10.0,<2"
 
 Usage
 -----
@@ -66,5 +66,5 @@ comma-separated value:
 References
 ----------
 
-* `OpenTelemetry trace semantic conventions <https://opentelemetry.io/docs/specs/semconv/general/trace/>`_
+* `OpenTelemetry MCP semantic conventions <https://github.com/open-telemetry/semantic-conventions-genai/blob/main/docs/gen-ai/mcp.md>`_
 * `Model Context Protocol documentation <https://modelcontextprotocol.io/>`_

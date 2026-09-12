@@ -15,11 +15,11 @@ Features
 Installation
 ------------
 
-Install the ADOT distro and a supported OpenAI Agents SDK version:
+Install the distribution and a supported OpenAI Agents SDK version:
 
 .. code-block:: console
 
-    pip install aws-opentelemetry-distro "openai-agents>=0.3.3"
+    pip install aws-opentelemetry-distro "openai-agents>=0.3.3,<1"
 
 Usage
 -----
@@ -62,5 +62,5 @@ same comma-separated value:
 References
 ----------
 
-* `OpenTelemetry generative AI semantic conventions <https://opentelemetry.io/docs/specs/semconv/gen-ai/>`_
+* `OpenTelemetry GenAI agent spans semantic conventions <https://github.com/open-telemetry/semantic-conventions-genai/blob/main/docs/gen-ai/gen-ai-agent-spans.md>`_
 * `OpenAI Agents SDK documentation <https://openai.github.io/openai-agents-python/>`_

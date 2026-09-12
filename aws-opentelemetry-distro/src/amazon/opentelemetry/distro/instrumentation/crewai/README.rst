@@ -15,11 +15,11 @@ Features
 Installation
 ------------
 
-Install the ADOT distro and a supported CrewAI version:
+Install the distribution and a supported CrewAI version:
 
 .. code-block:: console
 
-    pip install aws-opentelemetry-distro "crewai>=1.10.0"
+    pip install aws-opentelemetry-distro "crewai>=1.10.0,<2"
 
 Usage
 -----
@@ -32,6 +32,16 @@ and is loaded when CrewAI is installed:
     opentelemetry-instrument python app.py
 
 No application tracing code or CrewAI callback registration is required.
+
+.. note::
+
+    We recommend setting ``CREWAI_DISABLE_TELEMETRY=true`` if you are using
+    CrewAI. This disables CrewAI's built-in telemetry and prevents conflicting
+    instrumentation or duplicate telemetry.
+
+    .. code-block:: console
+
+        export CREWAI_DISABLE_TELEMETRY=true
 
 Disable the instrumentation
 ---------------------------
@@ -48,5 +58,5 @@ comma-separated value:
 References
 ----------
 
-* `OpenTelemetry generative AI semantic conventions <https://opentelemetry.io/docs/specs/semconv/gen-ai/>`_
+* `OpenTelemetry GenAI agent spans semantic conventions <https://github.com/open-telemetry/semantic-conventions-genai/blob/main/docs/gen-ai/gen-ai-agent-spans.md>`_
 * `CrewAI documentation <https://docs.crewai.com/>`_

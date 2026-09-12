@@ -17,11 +17,11 @@ Features
 Installation
 ------------
 
-Install the ADOT distro and a supported LlamaIndex core version:
+Install the distribution and a supported LlamaIndex core version:
 
 .. code-block:: console
 
-    pip install aws-opentelemetry-distro "llama-index-core>=0.13.0"
+    pip install aws-opentelemetry-distro "llama-index-core>=0.13.0,<1"
 
 Usage
 -----
@@ -50,5 +50,5 @@ same comma-separated value:
 References
 ----------
 
-* `OpenTelemetry generative AI semantic conventions <https://opentelemetry.io/docs/specs/semconv/gen-ai/>`_
+* `OpenTelemetry GenAI agent spans semantic conventions <https://github.com/open-telemetry/semantic-conventions-genai/blob/main/docs/gen-ai/gen-ai-agent-spans.md>`_
 * `LlamaIndex documentation <https://docs.llamaindex.ai/>`_

@@ -15,11 +15,11 @@ Features
 Installation
 ------------
 
-Install the ADOT distro and a supported LangChain version:
+Install the distribution and a supported LangChain version:
 
 .. code-block:: console
 
-    pip install aws-opentelemetry-distro "langchain>=0.3.21"
+    pip install aws-opentelemetry-distro "langchain>=0.3.21,<2"
 
 Usage
 -----
@@ -31,7 +31,15 @@ and is loaded when LangChain is installed:
 
     opentelemetry-instrument python app.py
 
-No application tracing code or LangChain callback registration is required.
+.. note::
+
+    We recommend setting ``LANGFUSE_TRACING_ENABLED=false`` if you are using
+    Langfuse with LangChain. This disables Langfuse tracing and prevents
+    conflicting instrumentation or duplicate telemetry.
+
+    .. code-block:: console
+
+        export LANGFUSE_TRACING_ENABLED=false
 
 Disable the instrumentation
 ---------------------------
@@ -48,5 +56,5 @@ same comma-separated value:
 References
 ----------
 
-* `OpenTelemetry generative AI semantic conventions <https://opentelemetry.io/docs/specs/semconv/gen-ai/>`_
+* `OpenTelemetry GenAI agent spans semantic conventions <https://github.com/open-telemetry/semantic-conventions-genai/blob/main/docs/gen-ai/gen-ai-agent-spans.md>`_
 * `LangChain documentation <https://python.langchain.com/docs/>`_

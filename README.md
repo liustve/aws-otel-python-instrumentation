@@ -23,32 +23,79 @@ For the complete list of supported frameworks, please refer to the [OpenTelemetr
 
 ## Generative AI
 
-Instrumentation is also available for the supported agent frameworks and SDKs
-listed below. These libraries complement the auto-instrumentation already
-included with the distribution, providing comprehensive, end-to-end visibility
-into your agent applications, from incoming requests and framework orchestration
-to model calls, tool invocations, and downstream dependencies.
+As of version `0.20.0`, this distribution officially supports Generative AI
+instrumentation for the following frameworks and SDKs:
 
-- [CrewAI](https://github.com/aws-observability/aws-otel-python-instrumentation/blob/main/aws-opentelemetry-distro/src/amazon/opentelemetry/distro/instrumentation/crewai/README.rst) (`crewai >= 1.10.0`)
-- [LangChain](https://github.com/aws-observability/aws-otel-python-instrumentation/blob/main/aws-opentelemetry-distro/src/amazon/opentelemetry/distro/instrumentation/langchain/README.rst) (`langchain >= 0.3.21`)
-- [LlamaIndex](https://github.com/aws-observability/aws-otel-python-instrumentation/blob/main/aws-opentelemetry-distro/src/amazon/opentelemetry/distro/instrumentation/llama_index/README.rst) (`llama-index-core >= 0.13.0`)
-- [Model Context Protocol (MCP)](https://github.com/aws-observability/aws-otel-python-instrumentation/blob/main/aws-opentelemetry-distro/src/amazon/opentelemetry/distro/instrumentation/mcp/README.rst) (`mcp >= 1.10.0`)
-- [OpenAI Agents SDK](https://github.com/aws-observability/aws-otel-python-instrumentation/blob/main/aws-opentelemetry-distro/src/amazon/opentelemetry/distro/instrumentation/openai_agents/README.rst) (`openai-agents >= 0.3.3`)
+- [CrewAI](https://github.com/aws-observability/aws-otel-python-instrumentation/blob/main/aws-opentelemetry-distro/src/amazon/opentelemetry/distro/instrumentation/crewai/README.rst) (`crewai >= 1.10.0, < 2`)
+- [LangChain](https://github.com/aws-observability/aws-otel-python-instrumentation/blob/main/aws-opentelemetry-distro/src/amazon/opentelemetry/distro/instrumentation/langchain/README.rst) (`langchain >= 0.3.21, < 2`)
+- [LlamaIndex](https://github.com/aws-observability/aws-otel-python-instrumentation/blob/main/aws-opentelemetry-distro/src/amazon/opentelemetry/distro/instrumentation/llama_index/README.rst) (`llama-index-core >= 0.13.0, < 1`)
+- [Model Context Protocol (MCP)](https://github.com/aws-observability/aws-otel-python-instrumentation/blob/main/aws-opentelemetry-distro/src/amazon/opentelemetry/distro/instrumentation/mcp/README.rst) (`mcp >= 1.10.0, < 2`)
+- [OpenAI Agents SDK](https://github.com/aws-observability/aws-otel-python-instrumentation/blob/main/aws-opentelemetry-distro/src/amazon/opentelemetry/distro/instrumentation/openai_agents/README.rst) (`openai-agents >= 0.3.3, < 1`)
 
-> [!NOTE]
-> When agent observability is enabled (`AGENT_OBSERVABILITY_ENABLED=true`),
-> instrumentation is skipped when a conflicting third-party instrumentation is
-> detected for the same framework. You may set
-> `ADOT_GENAI_INSTRUMENTATION=disabled` to disable all of the above
-> instrumentations if you are using another instrumentation source and automatic
-> detection does not work. If another third-party instrumentation is installed,
-> you should uninstall it or otherwise resolve any dependency conflicts before
-> using the above instrumentations. You may set
-> `ADOT_GENAI_INSTRUMENTATION=enabled` to force the above instrumentations to
-> load. We recommend that you do not use this setting because both
-> instrumentations may run and produce duplicate or inconsistent telemetry.
-> `AWS_AGENTIC_INSTRUMENTATION` is the legacy environment variable name and
-> remains supported as a fallback when `ADOT_GENAI_INSTRUMENTATION` is not set.
+These instrumentations provide end-to-end visibility into agent applications,
+including framework orchestration, model calls, tool invocations, and downstream
+dependencies.
+
+### Configuration
+
+<table>
+  <thead>
+    <tr>
+      <th>Environment variable</th>
+      <th>Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>AGENT_OBSERVABILITY_ENABLED</code></td>
+      <td>Set to <code>true</code> to enable agent-observability defaults. The default is <code>false</code>.</td>
+    </tr>
+    <tr>
+      <td><code>AWS_GENAI_CONTENT_EXTRACTION_OPT_OUT</code></td>
+      <td>
+        <p><strong>We strongly recommend setting this variable to <code>true</code> to keep captured content in span attributes.</strong> The current default is <code>false</code>: captured content is removed from span attributes and routed to a separate logs pipeline. If that logs pipeline is disabled, the content is discarded.</p>
+        <div class="markdown-alert markdown-alert-note">
+          <p class="markdown-alert-title">ⓘ Note</p>
+          <p>In a future release, routing captured content to the separate logs pipeline will become opt-in.</p>
+        </div>
+      </td>
+    </tr>
+    <tr>
+      <td><code>ADOT_REDACT_SPAN_ATTRIBUTES</code></td>
+      <td>
+        <p>A comma separated list of span attributes to redact. Matching values in spans, span events, and span links are all replaced with <code>REDACTED</code>. Note that this applies to all span attributes, not just those produced by this distribution's instrumentations.</p>
+        <p>Supports wildcard patterns.</p>
+        <p><strong>Examples:</strong></p>
+        <p>To redact specific sensitive data GenAI attributes:</p>
+        <pre><code>export ADOT_REDACT_SPAN_ATTRIBUTES='gen_ai.input.messages,gen_ai.output.messages'</code></pre>
+        <p>To redact multiple attributes matching a pattern:</p>
+        <pre><code>export ADOT_REDACT_SPAN_ATTRIBUTES='llm.input_messages.*,llm.output_messages.*'</code></pre>
+        <div class="markdown-alert markdown-alert-warning">
+          <p class="markdown-alert-title">⚠ Warning</p>
+          <p>Redaction occurs in-process within the agent, before telemetry is exported. This may affect other integrations that rely on these attribute values.</p>
+        </div>
+      </td>
+    </tr>
+    <tr>
+      <td>
+        <code>ADOT_GENAI_INSTRUMENTATION</code>
+        <div class="markdown-alert markdown-alert-note">
+          <p class="markdown-alert-title">ⓘ Note</p>
+          <p><code>AWS_AGENTIC_INSTRUMENTATION</code> is the legacy environment variable name and remains supported as a fallback when <code>ADOT_GENAI_INSTRUMENTATION</code> is not set.</p>
+        </div>
+      </td>
+      <td>
+        <p>Set to <code>disabled</code> to disable all of the above instrumentations. Set to <code>enabled</code> to force all of the above instrumentations to load.</p>
+        <div class="markdown-alert markdown-alert-note">
+          <p class="markdown-alert-title">ⓘ Note</p>
+          <p>When agent observability is enabled (<code>AGENT_OBSERVABILITY_ENABLED=true</code>), instrumentation is skipped when a conflicting third-party instrumentation is detected for the same framework.</p>
+          <p>You may set <code>ADOT_GENAI_INSTRUMENTATION=disabled</code> to disable all of the above instrumentations if you are using another instrumentation source and automatic detection does not work. If another third-party instrumentation is installed, you should uninstall it or otherwise resolve any dependency conflicts before using the above instrumentations.</p>
+          <p>You may set <code>ADOT_GENAI_INSTRUMENTATION=enabled</code> to force the above instrumentations to load. We recommend that you do not use this setting because both instrumentations may run and produce duplicate or inconsistent telemetry.</p>
+        </div>
+      </td>
+    </tr>
+  </tbody>
+</table>
 
 ## Support
 
