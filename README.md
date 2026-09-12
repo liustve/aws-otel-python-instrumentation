@@ -48,7 +48,10 @@ dependencies.
   <tbody>
     <tr>
       <td><code>AGENT_OBSERVABILITY_ENABLED</code></td>
-      <td>Set to <code>true</code> to enable agent-observability defaults. The default is <code>false</code>.</td>
+      <td>
+        Set to <code>true</code> to enable agent-observability defaults. The default is <code>false</code>.
+        <br>
+      </td>
     </tr>
     <tr>
       <td><code>AWS_GENAI_CONTENT_EXTRACTION_OPT_OUT</code></td>
@@ -58,6 +61,7 @@ dependencies.
           <p>[!NOTE]</p>
           <p>In a future release, routing captured content to the separate logs pipeline will become opt-in.</p>
         </blockquote>
+        <br>
       </td>
     </tr>
     <tr>
@@ -74,6 +78,7 @@ dependencies.
           <p>[!WARNING]</p>
           <p>Redaction occurs in-process within the agent, before telemetry is exported. This may affect other integrations that rely on these attribute values.</p>
         </blockquote>
+        <br>
       </td>
     </tr>
     <tr>
@@ -93,6 +98,7 @@ dependencies.
           <p>You may set <code>ADOT_GENAI_INSTRUMENTATION=disabled</code> to disable all of the above instrumentations if you are using another instrumentation source and automatic detection does not work. If another third-party instrumentation is installed, you should uninstall it or otherwise resolve any dependency conflicts before using the above instrumentations.</p>
           <p>You may set <code>ADOT_GENAI_INSTRUMENTATION=enabled</code> to force the above instrumentations to load. We recommend that you do not use this setting because both instrumentations may run and produce duplicate or inconsistent telemetry.</p>
         </blockquote>
+        <br>
       </td>
     </tr>
   </tbody>
