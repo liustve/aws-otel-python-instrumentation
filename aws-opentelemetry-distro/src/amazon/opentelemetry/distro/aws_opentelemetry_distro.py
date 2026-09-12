@@ -260,9 +260,9 @@ class AwsOpenTelemetryDistro(OpenTelemetryDistro):
         """Skip AWS native agentic instrumentors that should not load.
 
         When agent observability is enabled:
-        - ADOT_GENAI_INSTRUMENTATION (auto/enabled/disabled) governs the aws_* side only.
-          See the constant docstring for semantics. Third-party instrumentors are never
-          touched here.
+        - ADOT_GENAI_INSTRUMENTATION or AWS_AGENTIC_INSTRUMENTATION
+          (auto/enabled/disabled) governs the aws_* side only. Third-party
+          instrumentors are never touched here.
         """
         if is_agent_observability_enabled() and self._should_skip_instrumentor(entry_point):
             return

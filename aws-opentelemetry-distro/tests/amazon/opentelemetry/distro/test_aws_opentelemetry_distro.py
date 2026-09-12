@@ -561,7 +561,9 @@ class TestAwsOpenTelemetryDistro(TestCase):
         mock_super.assert_called_once_with(ep)
 
     def test_load_native_when_mode_enabled(self):
-        """aws_langchain should load when ADOT_GENAI_INSTRUMENTATION=enabled even if third-party registered."""
+        """aws_langchain should load when ADOT_GENAI_INSTRUMENTATION or
+        AWS_AGENTIC_INSTRUMENTATION is enabled, even if a third party is registered.
+        """
         ep = self._make_ep("aws_langchain", "aws-opentelemetry-distro")
         third_party = [self._make_ep("langchain", "openinference-instrumentation-langchain")]
         for mode_variable in (ADOT_GENAI_INSTRUMENTATION, AWS_AGENTIC_INSTRUMENTATION):
@@ -582,17 +584,35 @@ class TestAwsOpenTelemetryDistro(TestCase):
         mock_super.assert_called_once_with(ep)
 
     def test_skip_native_when_mode_disabled(self):
-        """aws_langchain should be skipped when ADOT_GENAI_INSTRUMENTATION=disabled, even with no third-party."""
+        """aws_langchain should be skipped when ADOT_GENAI_INSTRUMENTATION or
+        AWS_AGENTIC_INSTRUMENTATION is disabled.
+        """
         ep = self._make_ep("aws_langchain", "aws-opentelemetry-distro")
-        mock_super = self._load_instrumentor_with_agent(ep, third_party_eps=[], mode="disabled")
-        mock_super.assert_not_called()
+        for mode_variable in (ADOT_GENAI_INSTRUMENTATION, AWS_AGENTIC_INSTRUMENTATION):
+            with self.subTest(mode_variable=mode_variable):
+                mock_super = self._load_instrumentor_with_agent(
+                    ep,
+                    third_party_eps=[],
+                    mode="disabled",
+                    mode_variable=mode_variable,
+                )
+                mock_super.assert_not_called()
 
     def test_load_third_party_when_mode_disabled(self):
-        """Third-party langchain should load when ADOT_GENAI_INSTRUMENTATION=disabled."""
+        """Third-party langchain should load when ADOT_GENAI_INSTRUMENTATION or
+        AWS_AGENTIC_INSTRUMENTATION is disabled.
+        """
         ep = self._make_ep("langchain", "openinference-instrumentation-langchain")
         third_party = [self._make_ep("langchain", "openinference-instrumentation-langchain")]
-        mock_super = self._load_instrumentor_with_agent(ep, third_party_eps=third_party, mode="disabled")
-        mock_super.assert_called_once_with(ep)
+        for mode_variable in (ADOT_GENAI_INSTRUMENTATION, AWS_AGENTIC_INSTRUMENTATION):
+            with self.subTest(mode_variable=mode_variable):
+                mock_super = self._load_instrumentor_with_agent(
+                    ep,
+                    third_party_eps=third_party,
+                    mode="disabled",
+                    mode_variable=mode_variable,
+                )
+                mock_super.assert_called_once_with(ep)
 
     def test_unknown_mode_falls_back_to_auto(self):
         """An unrecognized value should warn (with the raw casing) and behave like auto."""
