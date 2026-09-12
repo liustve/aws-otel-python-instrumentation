@@ -69,6 +69,7 @@ from logging import ERROR, Logger, getLogger
 from amazon.opentelemetry.distro._utils import (
     OTEL_METRICS_ADD_APPLICATION_SIGNALS_DIMENSIONS,
     get_aws_region,
+    get_env_with_deprecated_alias,
     is_agent_observability_enabled,
     is_installed,
 )
@@ -116,7 +117,13 @@ _load._logger.setLevel(LEVELS.get(os.environ.get(OTEL_PYTHON_LOG_LEVEL, "error")
 #   "auto" (default, also when unset): load aws_* unless a same-library third-party is registered.
 #   "enabled" : load all aws_* unconditionally.
 #   "disabled": skip all aws_*.
+ADOT_GENAI_INSTRUMENTATION = "ADOT_GENAI_INSTRUMENTATION"
+# Deprecated: use ADOT_GENAI_INSTRUMENTATION.
 AWS_AGENTIC_INSTRUMENTATION = "AWS_AGENTIC_INSTRUMENTATION"
+
+# Opt-in control for replacing the OpenAI Agents SDK trace processors with the
+# ADOT processor, preventing export to the OpenAI trace backend.
+ADOT_INSTRUMENTATION_OPENAI_AGENTS_DISABLE_TRACE_EXPORT = "ADOT_INSTRUMENTATION_OPENAI_AGENTS_DISABLE_TRACE_EXPORT"
 
 # Maps third-party instrumentor entry point names to their AWS native equivalents.
 # Used for mutual exclusion: only one side instruments each library at a time.
@@ -257,12 +264,19 @@ class AwsOpenTelemetryDistro(OpenTelemetryDistro):
         """Skip AWS native agentic instrumentors that should not load.
 
         When agent observability is enabled:
-        - AWS_AGENTIC_INSTRUMENTATION (auto/enabled/disabled) governs the aws_* side only.
+        - ADOT_GENAI_INSTRUMENTATION (auto/enabled/disabled) governs the aws_* side only.
           See the constant docstring for semantics. Third-party instrumentors are never
           touched here.
         """
         if is_agent_observability_enabled() and self._should_skip_instrumentor(entry_point):
             return
+
+        if (
+            entry_point.name == "aws_openai_agents"
+            and os.environ.get(ADOT_INSTRUMENTATION_OPENAI_AGENTS_DISABLE_TRACE_EXPORT, "false").lower() == "true"
+        ):
+            kwargs["disable_openai_trace_export"] = True
+
         super().load_instrumentor(entry_point, **kwargs)
 
     @staticmethod
@@ -271,12 +285,16 @@ class AwsOpenTelemetryDistro(OpenTelemetryDistro):
         if not is_native:
             return False
 
-        raw_mode = os.environ.get(AWS_AGENTIC_INSTRUMENTATION, "auto")
+        raw_mode = get_env_with_deprecated_alias(
+            ADOT_GENAI_INSTRUMENTATION,
+            AWS_AGENTIC_INSTRUMENTATION,
+            "auto",
+        )
         mode = raw_mode.lower()
         if mode not in ("auto", "enabled", "disabled"):
             _logger.warning(
                 "Unknown %s=%r — falling back to 'auto'. Valid values: auto, enabled, disabled.",
-                AWS_AGENTIC_INSTRUMENTATION,
+                ADOT_GENAI_INSTRUMENTATION,
                 raw_mode,
             )
             mode = "auto"
@@ -284,7 +302,7 @@ class AwsOpenTelemetryDistro(OpenTelemetryDistro):
         if mode == "enabled":
             return False
         if mode == "disabled":
-            _logger.debug("Skipping %s: AWS_AGENTIC_INSTRUMENTATION=disabled", entry_point.name)
+            _logger.debug("Skipping %s: ADOT_GENAI_INSTRUMENTATION=disabled", entry_point.name)
             return True
 
         # mode == "auto": skip the native side if a same-library third-party is registered.
