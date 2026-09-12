@@ -36,10 +36,6 @@ No application tracing code or MCP hook registration is required.
 Configuration
 -------------
 
-.. pull-quote::
-
-    **Note**
-
 MCP instrumentation suppresses redundant HTTP client and ASGI spans by
 default. Set
 ``ADOT_INSTRUMENTATION_MCP_SUPPRESS_HTTP_INSTRUMENTATION=false`` to retain

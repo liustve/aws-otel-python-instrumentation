@@ -31,9 +31,8 @@ and is loaded when LangChain is installed:
 
     opentelemetry-instrument python app.py
 
-.. pull-quote::
-
-    **Note**
+Configuration
+-------------
 
 We recommend setting ``LANGFUSE_TRACING_ENABLED=false`` if you are using
 Langfuse with LangChain. This disables Langfuse tracing and prevents
