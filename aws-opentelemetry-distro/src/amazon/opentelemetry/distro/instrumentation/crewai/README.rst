@@ -33,15 +33,17 @@ and is loaded when CrewAI is installed:
 
 No application tracing code or CrewAI callback registration is required.
 
+.. pull-quote::
+
     **Note**
 
-    We recommend setting ``CREWAI_DISABLE_TELEMETRY=true`` if you are using
-    CrewAI. This disables CrewAI's built-in telemetry and prevents conflicting
-    instrumentation or duplicate telemetry.
+We recommend setting ``CREWAI_DISABLE_TELEMETRY=true`` if you are using
+CrewAI. This disables CrewAI's built-in telemetry and prevents conflicting
+instrumentation or duplicate telemetry.
 
-    ::
+::
 
-        export CREWAI_DISABLE_TELEMETRY=true
+    export CREWAI_DISABLE_TELEMETRY=true
 
 Disable the instrumentation
 ---------------------------
