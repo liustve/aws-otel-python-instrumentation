@@ -60,12 +60,14 @@ class McpWrapper:
     def __init__(self, tracer: trace.Tracer, **kwargs: Any) -> None:
         self._tracer = tracer
         self._propagators = kwargs.get("propagators") or get_global_textmap()
-        suppress_http_instrumentation = get_env(
-            ADOT_INSTRUMENTATION_MCP_SUPPRESS_HTTP_INSTRUMENTATION,
-            OTEL_MCP_SUPPRESS_HTTP_INSTRUMENTATION,
-            "true",
+        self._should_suppress_http_spans = (
+            get_env(
+                ADOT_INSTRUMENTATION_MCP_SUPPRESS_HTTP_INSTRUMENTATION,
+                OTEL_MCP_SUPPRESS_HTTP_INSTRUMENTATION,
+                "true",
+            ).lower()
+            == "true"
         )
-        self._should_suppress_http_spans = suppress_http_instrumentation.lower() == "true"
         self._agent_observability_enabled = is_agent_observability_enabled()
 
     def _should_suppress_mcp_span(self, message: Any) -> bool:
