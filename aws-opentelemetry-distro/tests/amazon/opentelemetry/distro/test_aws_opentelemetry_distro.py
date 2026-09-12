@@ -518,18 +518,16 @@ class TestAwsOpenTelemetryDistro(TestCase):
         self,
         ep,
         third_party_eps=None,
-        mode=None,
-        mode_variable=ADOT_GENAI_INSTRUMENTATION,
+        environment=None,
     ):
         """Helper to test load_instrumentor with agent observability enabled.
 
-        mode: None (unset → auto), "auto", "enabled", or "disabled".
+        environment: Environment variable values to set for the test.
         """
         distro = AwsOpenTelemetryDistro()
         os.environ.pop(ADOT_GENAI_INSTRUMENTATION, None)
         os.environ.pop(AWS_AGENTIC_INSTRUMENTATION, None)
-        if mode is not None:
-            os.environ[mode_variable] = mode
+        os.environ.update(environment or {})
         with patch(
             "amazon.opentelemetry.distro.aws_opentelemetry_distro.is_agent_observability_enabled", return_value=True
         ), patch(
@@ -566,13 +564,20 @@ class TestAwsOpenTelemetryDistro(TestCase):
         """
         ep = self._make_ep("aws_langchain", "aws-opentelemetry-distro")
         third_party = [self._make_ep("langchain", "openinference-instrumentation-langchain")]
-        for mode_variable in (ADOT_GENAI_INSTRUMENTATION, AWS_AGENTIC_INSTRUMENTATION):
-            with self.subTest(mode_variable=mode_variable):
+        environments = [
+            {ADOT_GENAI_INSTRUMENTATION: "enabled"},
+            {AWS_AGENTIC_INSTRUMENTATION: "enabled"},
+            {
+                ADOT_GENAI_INSTRUMENTATION: "enabled",
+                AWS_AGENTIC_INSTRUMENTATION: "disabled",
+            },
+        ]
+        for environment in environments:
+            with self.subTest(environment=environment):
                 mock_super = self._load_instrumentor_with_agent(
                     ep,
                     third_party_eps=third_party,
-                    mode="enabled",
-                    mode_variable=mode_variable,
+                    environment=environment,
                 )
                 mock_super.assert_called_once_with(ep)
 
@@ -580,7 +585,11 @@ class TestAwsOpenTelemetryDistro(TestCase):
         """Third-party langchain still loads under mode=enabled — only the aws_* side is governed."""
         ep = self._make_ep("langchain", "openinference-instrumentation-langchain")
         third_party = [self._make_ep("langchain", "openinference-instrumentation-langchain")]
-        mock_super = self._load_instrumentor_with_agent(ep, third_party_eps=third_party, mode="enabled")
+        mock_super = self._load_instrumentor_with_agent(
+            ep,
+            third_party_eps=third_party,
+            environment={ADOT_GENAI_INSTRUMENTATION: "enabled"},
+        )
         mock_super.assert_called_once_with(ep)
 
     def test_skip_native_when_mode_disabled(self):
@@ -588,8 +597,13 @@ class TestAwsOpenTelemetryDistro(TestCase):
         AWS_AGENTIC_INSTRUMENTATION is disabled.
         """
         ep = self._make_ep("aws_langchain", "aws-opentelemetry-distro")
-        for mode_variable in (ADOT_GENAI_INSTRUMENTATION, AWS_AGENTIC_INSTRUMENTATION):
-            with self.subTest(mode_variable=mode_variable):
+        environments = [
+            {ADOT_GENAI_INSTRUMENTATION: "disabled"},
+            {AWS_AGENTIC_INSTRUMENTATION: "disabled"},
+        ]
+        for environment in environments:
+            mode_variable = next(iter(environment))
+            with self.subTest(environment=environment):
                 with self.assertLogs(
                     "amazon.opentelemetry.distro.aws_opentelemetry_distro",
                     level="DEBUG",
@@ -597,8 +611,7 @@ class TestAwsOpenTelemetryDistro(TestCase):
                     mock_super = self._load_instrumentor_with_agent(
                         ep,
                         third_party_eps=[],
-                        mode="disabled",
-                        mode_variable=mode_variable,
+                        environment=environment,
                     )
                 mock_super.assert_not_called()
                 self.assertTrue(any(f"{mode_variable}=disabled" in line for line in logs.output))
@@ -609,13 +622,16 @@ class TestAwsOpenTelemetryDistro(TestCase):
         """
         ep = self._make_ep("langchain", "openinference-instrumentation-langchain")
         third_party = [self._make_ep("langchain", "openinference-instrumentation-langchain")]
-        for mode_variable in (ADOT_GENAI_INSTRUMENTATION, AWS_AGENTIC_INSTRUMENTATION):
-            with self.subTest(mode_variable=mode_variable):
+        environments = [
+            {ADOT_GENAI_INSTRUMENTATION: "disabled"},
+            {AWS_AGENTIC_INSTRUMENTATION: "disabled"},
+        ]
+        for environment in environments:
+            with self.subTest(environment=environment):
                 mock_super = self._load_instrumentor_with_agent(
                     ep,
                     third_party_eps=third_party,
-                    mode="disabled",
-                    mode_variable=mode_variable,
+                    environment=environment,
                 )
                 mock_super.assert_called_once_with(ep)
 
@@ -623,16 +639,20 @@ class TestAwsOpenTelemetryDistro(TestCase):
         """An unrecognized value should warn (with the raw casing) and behave like auto."""
         ep = self._make_ep("aws_langchain", "aws-opentelemetry-distro")
         third_party = [self._make_ep("langchain", "openinference-instrumentation-langchain")]
-        for mode_variable in (ADOT_GENAI_INSTRUMENTATION, AWS_AGENTIC_INSTRUMENTATION):
-            with self.subTest(mode_variable=mode_variable), self.assertLogs(
+        environments = [
+            {ADOT_GENAI_INSTRUMENTATION: "BoGuS"},
+            {AWS_AGENTIC_INSTRUMENTATION: "BoGuS"},
+        ]
+        for environment in environments:
+            mode_variable = next(iter(environment))
+            with self.subTest(environment=environment), self.assertLogs(
                 "amazon.opentelemetry.distro.aws_opentelemetry_distro",
                 level="WARNING",
             ) as logs:
                 mock_super = self._load_instrumentor_with_agent(
                     ep,
                     third_party_eps=third_party,
-                    mode="BoGuS",
-                    mode_variable=mode_variable,
+                    environment=environment,
                 )
             mock_super.assert_not_called()
             self.assertTrue(
@@ -646,15 +666,27 @@ class TestAwsOpenTelemetryDistro(TestCase):
         third_party = [self._make_ep("langchain", "openinference-instrumentation-langchain")]
 
         # ENABLED — load aws_* even with same-library third-party present
-        mock_super = self._load_instrumentor_with_agent(ep, third_party_eps=third_party, mode="ENABLED")
+        mock_super = self._load_instrumentor_with_agent(
+            ep,
+            third_party_eps=third_party,
+            environment={ADOT_GENAI_INSTRUMENTATION: "ENABLED"},
+        )
         mock_super.assert_called_once_with(ep)
 
         # Disabled — skip aws_*
-        mock_super = self._load_instrumentor_with_agent(ep, third_party_eps=[], mode="Disabled")
+        mock_super = self._load_instrumentor_with_agent(
+            ep,
+            third_party_eps=[],
+            environment={ADOT_GENAI_INSTRUMENTATION: "Disabled"},
+        )
         mock_super.assert_not_called()
 
         # Auto — same as unset, skip native because third-party covers it
-        mock_super = self._load_instrumentor_with_agent(ep, third_party_eps=third_party, mode="Auto")
+        mock_super = self._load_instrumentor_with_agent(
+            ep,
+            third_party_eps=third_party,
+            environment={ADOT_GENAI_INSTRUMENTATION: "Auto"},
+        )
         mock_super.assert_not_called()
 
     def test_load_regular_instrumentor(self):

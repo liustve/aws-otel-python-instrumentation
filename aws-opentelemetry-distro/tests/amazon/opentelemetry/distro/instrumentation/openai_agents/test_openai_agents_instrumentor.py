@@ -159,10 +159,16 @@ class TestOpenAIAgentsInstrumentor(unittest.TestCase):
 
     def test_disable_openai_trace_export_restores_previous_processors(self):
         cases = [
-            ("kwarg", {"disable_openai_trace_export": True}, {}),
-            ("environment", {}, {ADOT_INSTRUMENTATION_OPENAI_AGENTS_DISABLE_TRACE_EXPORT: "TrUe"}),
+            ("kwarg", {"disable_openai_trace_export": True}, {}, True),
+            ("environment", {}, {ADOT_INSTRUMENTATION_OPENAI_AGENTS_DISABLE_TRACE_EXPORT: "TrUe"}, True),
+            (
+                "kwarg_false_overrides_environment",
+                {"disable_openai_trace_export": False},
+                {ADOT_INSTRUMENTATION_OPENAI_AGENTS_DISABLE_TRACE_EXPORT: "true"},
+                False,
+            ),
         ]
-        for mode, instrument_kwargs, environment in cases:
+        for mode, instrument_kwargs, environment, export_disabled in cases:
             with self.subTest(mode=mode), patch.dict(os.environ, {}, clear=False):
                 os.environ.pop(ADOT_INSTRUMENTATION_OPENAI_AGENTS_DISABLE_TRACE_EXPORT, None)
                 os.environ.update(environment)
@@ -172,7 +178,8 @@ class TestOpenAIAgentsInstrumentor(unittest.TestCase):
                 self.instrumentor.instrument(skip_dep_check=True, **instrument_kwargs)
                 processor = self.instrumentor._processor  # pylint: disable=protected-access
                 current = tracing.get_trace_provider()._multi_processor._processors  # pylint: disable=protected-access
-                self.assertEqual(current, (processor,))
+                expected = (processor,) if export_disabled else (existing_processor, processor)
+                self.assertEqual(current, expected)
 
                 self.instrumentor.uninstrument()
                 current = tracing.get_trace_provider()._multi_processor._processors  # pylint: disable=protected-access

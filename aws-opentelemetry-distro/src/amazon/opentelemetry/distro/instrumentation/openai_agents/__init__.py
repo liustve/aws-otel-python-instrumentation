@@ -80,10 +80,11 @@ class OpenAIAgentsInstrumentor(BaseInstrumentor):  # type: ignore
         # disables http spans created from spans sent OpenAI's tracing backend
         try_wrap("agents.tracing.processors", "BackendSpanExporter.export", _suppress_http_instrumentation)
 
-        disable_openai_trace_export = (
-            kwargs.get("disable_openai_trace_export")
-            or os.environ.get(ADOT_INSTRUMENTATION_OPENAI_AGENTS_DISABLE_TRACE_EXPORT, "false").lower() == "true"
-        )
+        disable_openai_trace_export = kwargs.get("disable_openai_trace_export")
+        if disable_openai_trace_export is None:
+            disable_openai_trace_export = (
+                os.environ.get(ADOT_INSTRUMENTATION_OPENAI_AGENTS_DISABLE_TRACE_EXPORT, "false").lower() == "true"
+            )
         if disable_openai_trace_export:
             trace_provider = get_trace_provider()
             multi_processor = getattr(trace_provider, "_multi_processor", None)

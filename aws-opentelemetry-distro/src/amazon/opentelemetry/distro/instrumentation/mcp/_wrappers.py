@@ -2,7 +2,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import logging
-import os
 from contextlib import asynccontextmanager
 from contextvars import Token
 from typing import Any, Callable, Coroutine, Dict, Optional, Tuple
