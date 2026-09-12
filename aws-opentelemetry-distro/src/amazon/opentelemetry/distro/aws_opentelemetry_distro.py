@@ -274,12 +274,15 @@ class AwsOpenTelemetryDistro(OpenTelemetryDistro):
         if not is_native:
             return False
 
+        mode_variable = (
+            ADOT_GENAI_INSTRUMENTATION if ADOT_GENAI_INSTRUMENTATION in os.environ else AWS_AGENTIC_INSTRUMENTATION
+        )
         raw_mode = get_env(ADOT_GENAI_INSTRUMENTATION, AWS_AGENTIC_INSTRUMENTATION, "auto")
         mode = raw_mode.lower()
         if mode not in ("auto", "enabled", "disabled"):
             _logger.warning(
                 "Unknown %s=%r — falling back to 'auto'. Valid values: auto, enabled, disabled.",
-                ADOT_GENAI_INSTRUMENTATION,
+                mode_variable,
                 raw_mode,
             )
             mode = "auto"
@@ -287,7 +290,7 @@ class AwsOpenTelemetryDistro(OpenTelemetryDistro):
         if mode == "enabled":
             return False
         if mode == "disabled":
-            _logger.debug("Skipping %s: ADOT_GENAI_INSTRUMENTATION=disabled", entry_point.name)
+            _logger.debug("Skipping %s: %s=disabled", entry_point.name, mode_variable)
             return True
 
         # mode == "auto": skip the native side if a same-library third-party is registered.
