@@ -19,7 +19,7 @@ Installation
 
 Install the distribution and a supported LlamaIndex core version:
 
-.. code-block:: console
+::
 
     pip install aws-opentelemetry-distro "llama-index-core>=0.13.0,<1"
 
@@ -29,7 +29,7 @@ Usage
 The instrumentation is registered with OpenTelemetry Python auto-instrumentation
 and is loaded when LlamaIndex is installed:
 
-.. code-block:: console
+::
 
     opentelemetry-instrument python app.py
 
@@ -42,7 +42,7 @@ Add ``aws_llama-index`` to ``OTEL_PYTHON_DISABLED_INSTRUMENTATIONS`` before
 starting the application. Include any other disabled instrumentations in the
 same comma-separated value:
 
-.. code-block:: console
+::
 
     export OTEL_PYTHON_DISABLED_INSTRUMENTATIONS=aws_llama-index
     opentelemetry-instrument python app.py

@@ -17,7 +17,7 @@ Installation
 
 Install the distribution and a supported CrewAI version:
 
-.. code-block:: console
+::
 
     pip install aws-opentelemetry-distro "crewai>=1.10.0,<2"
 
@@ -27,19 +27,19 @@ Usage
 The instrumentation is registered with OpenTelemetry Python auto-instrumentation
 and is loaded when CrewAI is installed:
 
-.. code-block:: console
+::
 
     opentelemetry-instrument python app.py
 
 No application tracing code or CrewAI callback registration is required.
 
-.. note::
+    **Note**
 
     We recommend setting ``CREWAI_DISABLE_TELEMETRY=true`` if you are using
     CrewAI. This disables CrewAI's built-in telemetry and prevents conflicting
     instrumentation or duplicate telemetry.
 
-    .. code-block:: console
+    ::
 
         export CREWAI_DISABLE_TELEMETRY=true
 
@@ -50,7 +50,7 @@ Add ``aws_crewai`` to ``OTEL_PYTHON_DISABLED_INSTRUMENTATIONS`` before starting
 the application. Include any other disabled instrumentations in the same
 comma-separated value:
 
-.. code-block:: console
+::
 
     export OTEL_PYTHON_DISABLED_INSTRUMENTATIONS=aws_crewai
     opentelemetry-instrument python app.py

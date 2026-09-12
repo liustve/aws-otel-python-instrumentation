@@ -17,7 +17,7 @@ Installation
 
 Install the distribution and a supported MCP SDK version:
 
-.. code-block:: console
+::
 
     pip install aws-opentelemetry-distro "mcp>=1.10.0,<2"
 
@@ -27,7 +27,7 @@ Usage
 The instrumentation is registered with OpenTelemetry Python auto-instrumentation
 and is loaded when the MCP SDK is installed:
 
-.. code-block:: console
+::
 
     opentelemetry-instrument python app.py
 
@@ -36,14 +36,14 @@ No application tracing code or MCP hook registration is required.
 Configuration
 -------------
 
-.. note::
+    **Note**
 
     MCP instrumentation suppresses redundant HTTP client and ASGI spans by
     default. Set
     ``ADOT_INSTRUMENTATION_MCP_SUPPRESS_HTTP_INSTRUMENTATION=false`` to retain
     those spans:
 
-    .. code-block:: console
+    ::
 
         export ADOT_INSTRUMENTATION_MCP_SUPPRESS_HTTP_INSTRUMENTATION=false
 
@@ -58,7 +58,7 @@ Add ``aws_mcp`` to ``OTEL_PYTHON_DISABLED_INSTRUMENTATIONS`` before starting the
 application. Include any other disabled instrumentations in the same
 comma-separated value:
 
-.. code-block:: console
+::
 
     export OTEL_PYTHON_DISABLED_INSTRUMENTATIONS=aws_mcp
     opentelemetry-instrument python app.py

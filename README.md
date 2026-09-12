@@ -78,7 +78,7 @@ dependencies.
     </tr>
     <tr>
       <td>
-        <code>ADOT_GENAI_INSTRUMENTATION</code>
+        <p><code>ADOT_GENAI_INSTRUMENTATION</code></p>
         <br>
         <blockquote>
           <p>[!NOTE]</p>

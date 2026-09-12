@@ -17,7 +17,7 @@ Installation
 
 Install the distribution and a supported OpenAI Agents SDK version:
 
-.. code-block:: console
+::
 
     pip install aws-opentelemetry-distro "openai-agents>=0.3.3,<1"
 
@@ -27,7 +27,7 @@ Usage
 The instrumentation is registered with OpenTelemetry Python auto-instrumentation
 and is loaded when the OpenAI Agents SDK is installed:
 
-.. code-block:: console
+::
 
     opentelemetry-instrument python app.py
 
@@ -37,13 +37,13 @@ required.
 Configuration
 -------------
 
-.. note::
+    **Note**
 
     Set ``ADOT_INSTRUMENTATION_OPENAI_AGENTS_DISABLE_TRACE_EXPORT=true`` to
     disable exporting traces to the OpenAI backend while retaining ADOT
     instrumentation:
 
-    .. code-block:: console
+    ::
 
         export ADOT_INSTRUMENTATION_OPENAI_AGENTS_DISABLE_TRACE_EXPORT=true
 
@@ -54,7 +54,7 @@ Add ``aws_openai_agents`` to ``OTEL_PYTHON_DISABLED_INSTRUMENTATIONS`` before
 starting the application. Include any other disabled instrumentations in the
 same comma-separated value:
 
-.. code-block:: console
+::
 
     export OTEL_PYTHON_DISABLED_INSTRUMENTATIONS=aws_openai_agents
     opentelemetry-instrument python app.py

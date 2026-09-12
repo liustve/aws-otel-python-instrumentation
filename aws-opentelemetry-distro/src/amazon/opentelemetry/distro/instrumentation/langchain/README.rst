@@ -17,7 +17,7 @@ Installation
 
 Install the distribution and a supported LangChain version:
 
-.. code-block:: console
+::
 
     pip install aws-opentelemetry-distro "langchain>=0.3.21,<2"
 
@@ -27,17 +27,17 @@ Usage
 The instrumentation is registered with OpenTelemetry Python auto-instrumentation
 and is loaded when LangChain is installed:
 
-.. code-block:: console
+::
 
     opentelemetry-instrument python app.py
 
-.. note::
+    **Note**
 
     We recommend setting ``LANGFUSE_TRACING_ENABLED=false`` if you are using
     Langfuse with LangChain. This disables Langfuse tracing and prevents
     conflicting instrumentation or duplicate telemetry.
 
-    .. code-block:: console
+    ::
 
         export LANGFUSE_TRACING_ENABLED=false
 
@@ -48,7 +48,7 @@ Add ``aws_langchain`` to ``OTEL_PYTHON_DISABLED_INSTRUMENTATIONS`` before
 starting the application. Include any other disabled instrumentations in the
 same comma-separated value:
 
-.. code-block:: console
+::
 
     export OTEL_PYTHON_DISABLED_INSTRUMENTATIONS=aws_langchain
     opentelemetry-instrument python app.py
