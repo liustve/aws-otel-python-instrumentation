@@ -34,6 +34,16 @@ and is loaded when the OpenAI Agents SDK is installed:
 No application tracing code or Agents SDK trace processor registration is
 required.
 
+Configuration
+-------------
+
+Set ``ADOT_INSTRUMENTATION_OPENAI_AGENTS_DISABLE_TRACE_EXPORT=true`` to disable
+exporting traces to the OpenAI backend while retaining ADOT instrumentation:
+
+.. code-block:: console
+
+    export ADOT_INSTRUMENTATION_OPENAI_AGENTS_DISABLE_TRACE_EXPORT=true
+
 Disable the instrumentation
 ---------------------------
 
