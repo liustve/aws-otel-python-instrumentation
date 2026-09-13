@@ -42,8 +42,8 @@ OpenAI Agents SDK tracing
 
 This instrumentation uses the SDK's trace events to create OpenTelemetry spans.
 Setting ``OPENAI_AGENTS_DISABLE_TRACING=true`` or passing
-``RunConfig(tracing_disabled=True)`` disables those events, so this
-instrumentation cannot create spans.
+``RunConfig(tracing_disabled=True)`` disables those events and effectively
+disables this instrumentation.
 
 If you configure SDK tracing through the environment, leave it enabled:
 
@@ -68,7 +68,7 @@ OpenAI trace export
 ~~~~~~~~~~~~~~~~~~~
 
 Set ``ADOT_INSTRUMENTATION_OPENAI_AGENTS_DISABLE_TRACE_EXPORT=true`` to
-disable exporting traces to the OpenAI backend while retaining ADOT
+disable exporting traces to the OpenAI backend while retaining this
 instrumentation:
 
 ::
